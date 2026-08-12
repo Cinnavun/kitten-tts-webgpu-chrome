@@ -5,6 +5,9 @@ const voiceSelect = document.getElementById('voiceSelect');
 const playBtn = document.getElementById('playBtn');
 const status = document.getElementById('status');
 
+let audioQueue = [];
+let isPlaying = false;
+
 // 1. Listen for right-click text sent from the background script
 chrome.storage.onChanged.addListener((changes) => {
   if (changes.ttsText && changes.ttsText.newValue) {
@@ -21,33 +24,65 @@ playBtn.addEventListener('click', () => {
 });
 
 async function generateAndPlay(text) {
+  playBtn.disabled = true;
+  audioQueue = []; // Reset queue
+  isPlaying = false;
+  
+  // Use browser's native Intl.Segmenter to safely split text into sentences
+  const segmenter = new Intl.Segmenter('en', { granularity: 'sentence' });
+  const segments = Array.from(segmenter.segment(text))
+    .map(s => s.segment.trim())
+    .filter(s => s.length > 0);
+
   try {
-    status.innerText = "Generating audio (WebGPU)...";
-    playBtn.disabled = true;
+    for (let i = 0; i < segments.length; i++) {
+      let sentence = segments[i];
+      
+      // Failsafe for abnormally long run-on sentences without punctuation
+      if (sentence.length > 500) {
+        sentence = sentence.substring(0, 500); 
+      }
 
-    // Run inference using the cached 24MB Nano model
-    const blob = await textToSpeech(text, { 
-      voice: voiceSelect.value, 
-      model: 'nano', 
-      onProgress: (stage) => {
-        // This will display the download progress on the first run
-        status.innerText = stage; 
-  }
-});
+      status.innerText = `Generating audio (${i + 1}/${segments.length})...`;
 
-    const audioUrl = URL.createObjectURL(blob);
-    const audio = new Audio(audioUrl);
+      const blob = await textToSpeech(sentence, { 
+        voice: voiceSelect.value, 
+        model: 'nano'
+      });
+
+      const audioUrl = URL.createObjectURL(blob);
+      audioQueue.push(audioUrl);
+
+      // Start playing immediately if this is the first chunk
+      if (!isPlaying) {
+        playNextInQueue();
+      }
+    }
     
-    audio.onended = () => URL.revokeObjectURL(audioUrl);
-    audio.play();
-
-    status.innerText = "Playing...";
+    status.innerText = "Generation complete. Playing...";
   } catch (error) {
     console.error(error);
     status.innerText = "Error: " + error.message;
-  } finally {
     playBtn.disabled = false;
-    // Clear status after a few seconds
-    setTimeout(() => { if(status.innerText === "Playing...") status.innerText = ""; }, 3000);
   }
+}
+
+function playNextInQueue() {
+  if (audioQueue.length === 0) {
+    isPlaying = false;
+    status.innerText = "";
+    playBtn.disabled = false;
+    return;
+  }
+
+  isPlaying = true;
+  const nextAudioUrl = audioQueue.shift();
+  const audio = new Audio(nextAudioUrl);
+  
+  audio.onended = () => {
+    URL.revokeObjectURL(nextAudioUrl);
+    playNextInQueue(); // Play the next sentence when this one finishes
+  };
+  
+  audio.play();
 }

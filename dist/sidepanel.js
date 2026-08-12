@@ -21884,6 +21884,8 @@ var require_sidepanel = __commonJS({
     var voiceSelect = document.getElementById("voiceSelect");
     var playBtn = document.getElementById("playBtn");
     var status = document.getElementById("status");
+    var audioQueue = [];
+    var isPlaying = false;
     chrome.storage.onChanged.addListener((changes) => {
       if (changes.ttsText && changes.ttsText.newValue) {
         textInput.value = changes.ttsText.newValue;
@@ -21896,30 +21898,50 @@ var require_sidepanel = __commonJS({
       }
     });
     async function generateAndPlay(text) {
+      playBtn.disabled = true;
+      audioQueue = [];
+      isPlaying = false;
+      const segmenter = new Intl.Segmenter("en", { granularity: "sentence" });
+      const segments = Array.from(segmenter.segment(text)).map((s) => s.segment.trim()).filter((s) => s.length > 0);
       try {
-        status.innerText = "Generating audio (WebGPU)...";
-        playBtn.disabled = true;
-        const blob = await xi(text, {
-          voice: voiceSelect.value,
-          model: "nano",
-          onProgress: (stage) => {
-            status.innerText = stage;
+        for (let i = 0; i < segments.length; i++) {
+          let sentence = segments[i];
+          if (sentence.length > 500) {
+            sentence = sentence.substring(0, 500);
           }
-        });
-        const audioUrl = URL.createObjectURL(blob);
-        const audio = new Audio(audioUrl);
-        audio.onended = () => URL.revokeObjectURL(audioUrl);
-        audio.play();
-        status.innerText = "Playing...";
+          status.innerText = `Generating audio (${i + 1}/${segments.length})...`;
+          const blob = await xi(sentence, {
+            voice: voiceSelect.value,
+            model: "nano"
+          });
+          const audioUrl = URL.createObjectURL(blob);
+          audioQueue.push(audioUrl);
+          if (!isPlaying) {
+            playNextInQueue();
+          }
+        }
+        status.innerText = "Generation complete. Playing...";
       } catch (error) {
         console.error(error);
         status.innerText = "Error: " + error.message;
-      } finally {
         playBtn.disabled = false;
-        setTimeout(() => {
-          if (status.innerText === "Playing...") status.innerText = "";
-        }, 3e3);
       }
+    }
+    function playNextInQueue() {
+      if (audioQueue.length === 0) {
+        isPlaying = false;
+        status.innerText = "";
+        playBtn.disabled = false;
+        return;
+      }
+      isPlaying = true;
+      const nextAudioUrl = audioQueue.shift();
+      const audio = new Audio(nextAudioUrl);
+      audio.onended = () => {
+        URL.revokeObjectURL(nextAudioUrl);
+        playNextInQueue();
+      };
+      audio.play();
     }
   }
 });
