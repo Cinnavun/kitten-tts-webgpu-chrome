@@ -1,0 +1,35 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>Kitten TTS</title>
+  <style>
+    body { font-family: system-ui; padding: 12px; }
+    textarea { width: 100%; height: 100px; margin-bottom: 10px; }
+    select, button { width: 100%; padding: 8px; margin-bottom: 10px; }
+  </style>
+</head>
+<body>
+  <h4>Kitten TTS WebGPU</h4>
+  
+  <select id="voiceSelect">
+    <optgroup label="Female">
+      <option value="Bella">Bella</option>
+      <option value="Luna">Luna</option>
+      <option value="Rosie">Rosie</option>
+      <option value="Kiki">Kiki</option>
+    </optgroup>
+    <optgroup label="Male">
+      <option value="Jasper">Jasper</option>
+      <option value="Bruno">Bruno</option>
+      <option value="Hugo">Hugo</option>
+      <option value="Leo">Leo</option>
+    </optgroup>
+  </select>
+
+  <textarea id="textInput" placeholder="Text to read..."></textarea>
+  <button id="playBtn">Play Audio</button>
+  <div id="status"></div>
+
+  <script type="module" src="dist/sidepanel.js"></script>
+</body>
+</html>

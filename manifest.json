@@ -1,0 +1,16 @@
+{
+  "manifest_version": 3,
+  "name": "Kitten TTS WebGPU",
+  "version": "1.0",
+  "permissions": [
+    "contextMenus",
+    "sidePanel",
+    "storage"
+  ],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "side_panel": {
+    "default_path": "sidepanel.html"
+  }
+}

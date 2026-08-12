@@ -1,0 +1,24 @@
+{
+  "name": "webgpu",
+  "version": "1.0.0",
+  "description": "",
+  "main": "background.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "build": "esbuild src/sidepanel.js --bundle --format=esm --outfile=dist/sidepanel.js",
+    "watch": "esbuild src/sidepanel.js --bundle --format=esm --outfile=dist/sidepanel.js --watch"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "dependencies": {
+    "kitten-tts-webgpu": "^0.1.1"
+  },
+  "devDependencies": {
+    "esbuild": "^0.28.1"
+  },
+  "allowScripts": {
+    "esbuild@0.28.1": true
+  }
+}
