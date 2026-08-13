@@ -11,10 +11,11 @@ const status = document.getElementById('status');
 
 let audioQueue = [];
 let isPlaying = false;
+let isGenerating = false;
 let currentAudio = null;
 let currentAbortController = null;
 
-// --- 1. Load Configurations & Initial Text on Startup ---
+// --- 1. Load Stored Settings & Text ---
 document.addEventListener('DOMContentLoaded', async () => {
   const settings = await chrome.storage.local.get([
     'selectedVoice',
@@ -24,7 +25,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   ]);
 
   voiceSelect.value = settings.selectedVoice || 'Jasper';
-  
+
   if (settings.selectedModel) {
     modelSelect.value = settings.selectedModel;
   }
@@ -41,7 +42,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   }
 });
 
-// --- 2. Save Config Preferences ---
+// --- 2. Persist Preferences ---
 voiceSelect.addEventListener('change', () => {
   chrome.storage.local.set({ selectedVoice: voiceSelect.value });
 });
@@ -56,7 +57,7 @@ speedInput.addEventListener('input', () => {
   chrome.storage.local.set({ selectedSpeed: speedInput.value });
 });
 
-// --- 3. Storage Change Listener ---
+// --- 3. Storage Listener ---
 chrome.storage.onChanged.addListener((changes) => {
   if (changes.ttsText && changes.ttsText.newValue) {
     textInput.value = changes.ttsText.newValue;
@@ -65,7 +66,47 @@ chrome.storage.onChanged.addListener((changes) => {
   }
 });
 
-// --- 4. Controls & Playback Handlers ---
+// --- 4. Smart Text Chunking (Prevents Awkward Mid-Sentence Pauses) ---
+function chunkText(text) {
+  const cleanText = text.replace(/\s+/g, ' ').trim();
+  if (!cleanText) return [];
+
+  // Common abbreviations to avoid splitting on
+  const abbrRegex = /(?:Mr|Mrs|Ms|Dr|Prof|Sr|Jr|vs|Inc|Ltd|St|Co|Jan|Feb|Mar|Apr|Jun|Jul|Aug|Sep|Oct|Nov|Dec|e\.g|i\.e)\.$/i;
+
+  // Split by main sentence punctuation (. ! ?)
+  const rawSegments = cleanText.split(/(?<=[.!?])\s+/);
+
+  const chunks = [];
+  let currentChunk = '';
+
+  for (let i = 0; i < rawSegments.length; i++) {
+    const seg = rawSegments[i].trim();
+    if (!seg) continue;
+
+    if (currentChunk) {
+      currentChunk += ' ' + seg;
+    } else {
+      currentChunk = seg;
+    }
+
+    const isAbbrev = abbrRegex.test(currentChunk);
+
+    // Merge short segments into 200–300 char chunks unless forced by a true boundary
+    if ((!isAbbrev && currentChunk.length >= 200) || currentChunk.length >= 400) {
+      chunks.push(currentChunk);
+      currentChunk = '';
+    }
+  }
+
+  if (currentChunk) {
+    chunks.push(currentChunk);
+  }
+
+  return chunks;
+}
+
+// --- 5. Playback Handlers ---
 playBtn.addEventListener('click', () => {
   if (textInput.value.trim()) {
     generateAndPlay(textInput.value);
@@ -91,6 +132,7 @@ function stopAudio() {
   audioQueue.forEach(url => URL.revokeObjectURL(url));
   audioQueue = [];
   isPlaying = false;
+  isGenerating = false;
 
   status.innerText = "Stopped.";
   playBtn.disabled = false;
@@ -106,33 +148,34 @@ async function generateAndPlay(text) {
   const abortController = new AbortController();
   currentAbortController = abortController;
 
-  const segmenter = new Intl.Segmenter('en', { granularity: 'sentence' });
-  const segments = Array.from(segmenter.segment(text))
-    .map(s => s.segment.trim())
-    .filter(s => s.length > 0);
+  const chunks = chunkText(text);
+  if (chunks.length === 0) {
+    stopAudio();
+    return;
+  }
 
   const voice = voiceSelect.value || 'Jasper';
   const model = modelSelect.value || 'nano';
   const speed = parseFloat(speedInput.value) || 1.0;
 
+  isGenerating = true;
+
   try {
-    for (let i = 0; i < segments.length; i++) {
+    for (let i = 0; i < chunks.length; i++) {
       if (abortController.signal.aborted) break;
 
-      let sentence = segments[i];
-      if (sentence.length > 500) {
-        sentence = sentence.substring(0, 500);
+      const chunk = chunks[i];
+      if (!isPlaying) {
+        status.innerText = `Generating chunk ${i + 1}/${chunks.length}...`;
       }
 
-      status.innerText = `Chunk ${i + 1}/${segments.length}: Initializing...`;
-
-      const blob = await textToSpeech(sentence, {
+      const blob = await textToSpeech(chunk, {
         voice: voice,
         model: model,
         speed: speed,
         onProgress: (stage) => {
-          if (!abortController.signal.aborted) {
-            status.innerText = `Chunk ${i + 1}/${segments.length}: ${stage}`;
+          if (!abortController.signal.aborted && !isPlaying) {
+            status.innerText = `Chunk ${i + 1}/${chunks.length}: ${stage}`;
           }
         }
       });
@@ -146,10 +189,6 @@ async function generateAndPlay(text) {
         playNextInQueue();
       }
     }
-
-    if (!abortController.signal.aborted) {
-      status.innerText = "Generation complete. Playing...";
-    }
   } catch (error) {
     if (!abortController.signal.aborted) {
       console.error("TTS Error:", error);
@@ -158,23 +197,33 @@ async function generateAndPlay(text) {
       stopBtn.style.display = 'none';
     }
   } finally {
+    isGenerating = false;
     currentAbortController = null;
   }
 }
 
 function playNextInQueue() {
   if (audioQueue.length === 0) {
+    if (isGenerating) {
+      status.innerText = "Buffering audio...";
+      isPlaying = false;
+      return;
+    }
+
     isPlaying = false;
     currentAudio = null;
-    status.innerText = "";
+    status.innerText = "Finished playing.";
     playBtn.disabled = false;
     stopBtn.style.display = 'none';
     return;
   }
 
   isPlaying = true;
+  status.innerText = "Playing audio...";
+
   const nextAudioUrl = audioQueue.shift();
   currentAudio = new Audio(nextAudioUrl);
+  currentAudio.preload = 'auto';
 
   currentAudio.onended = () => {
     URL.revokeObjectURL(nextAudioUrl);

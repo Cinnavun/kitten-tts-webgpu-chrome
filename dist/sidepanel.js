@@ -21882,26 +21882,48 @@ var require_sidepanel = __commonJS({
     init_dist_lib();
     var textInput = document.getElementById("textInput");
     var voiceSelect = document.getElementById("voiceSelect");
+    var modelSelect = document.getElementById("modelSelect");
+    var speedInput = document.getElementById("speedInput");
+    var speedValue = document.getElementById("speedValue");
     var playBtn = document.getElementById("playBtn");
     var stopBtn = document.getElementById("stopBtn");
     var status = document.getElementById("status");
     var audioQueue = [];
     var isPlaying = false;
+    var isGenerating = false;
     var currentAudio = null;
     var currentAbortController = null;
     document.addEventListener("DOMContentLoaded", async () => {
-      const { selectedVoice, ttsText } = await chrome.storage.local.get(["selectedVoice", "ttsText"]);
-      if (selectedVoice) {
-        voiceSelect.value = selectedVoice;
+      const settings = await chrome.storage.local.get([
+        "selectedVoice",
+        "selectedModel",
+        "selectedSpeed",
+        "ttsText"
+      ]);
+      voiceSelect.value = settings.selectedVoice || "Jasper";
+      if (settings.selectedModel) {
+        modelSelect.value = settings.selectedModel;
       }
-      if (ttsText) {
-        textInput.value = ttsText;
+      if (settings.selectedSpeed) {
+        speedInput.value = settings.selectedSpeed;
+        speedValue.innerText = `${parseFloat(settings.selectedSpeed).toFixed(1)}x`;
+      }
+      if (settings.ttsText) {
+        textInput.value = settings.ttsText;
         await chrome.storage.local.remove("ttsText");
-        generateAndPlay(ttsText);
+        generateAndPlay(settings.ttsText);
       }
     });
     voiceSelect.addEventListener("change", () => {
       chrome.storage.local.set({ selectedVoice: voiceSelect.value });
+    });
+    modelSelect.addEventListener("change", () => {
+      chrome.storage.local.set({ selectedModel: modelSelect.value });
+    });
+    speedInput.addEventListener("input", () => {
+      const speed = parseFloat(speedInput.value).toFixed(1);
+      speedValue.innerText = `${speed}x`;
+      chrome.storage.local.set({ selectedSpeed: speedInput.value });
     });
     chrome.storage.onChanged.addListener((changes) => {
       if (changes.ttsText && changes.ttsText.newValue) {
@@ -21910,6 +21932,32 @@ var require_sidepanel = __commonJS({
         generateAndPlay(changes.ttsText.newValue);
       }
     });
+    function chunkText(text) {
+      const cleanText = text.replace(/\s+/g, " ").trim();
+      if (!cleanText) return [];
+      const abbrRegex = /(?:Mr|Mrs|Ms|Dr|Prof|Sr|Jr|vs|Inc|Ltd|St|Co|Jan|Feb|Mar|Apr|Jun|Jul|Aug|Sep|Oct|Nov|Dec|e\.g|i\.e)\.$/i;
+      const rawSegments = cleanText.split(/(?<=[.!?])\s+/);
+      const chunks = [];
+      let currentChunk = "";
+      for (let i = 0; i < rawSegments.length; i++) {
+        const seg = rawSegments[i].trim();
+        if (!seg) continue;
+        if (currentChunk) {
+          currentChunk += " " + seg;
+        } else {
+          currentChunk = seg;
+        }
+        const isAbbrev = abbrRegex.test(currentChunk);
+        if (!isAbbrev && currentChunk.length >= 200 || currentChunk.length >= 400) {
+          chunks.push(currentChunk);
+          currentChunk = "";
+        }
+      }
+      if (currentChunk) {
+        chunks.push(currentChunk);
+      }
+      return chunks;
+    }
     playBtn.addEventListener("click", () => {
       if (textInput.value.trim()) {
         generateAndPlay(textInput.value);
@@ -21931,6 +21979,7 @@ var require_sidepanel = __commonJS({
       audioQueue.forEach((url) => URL.revokeObjectURL(url));
       audioQueue = [];
       isPlaying = false;
+      isGenerating = false;
       status.innerText = "Stopped.";
       playBtn.disabled = false;
       stopBtn.style.display = "none";
@@ -21941,19 +21990,31 @@ var require_sidepanel = __commonJS({
       stopBtn.style.display = "block";
       const abortController = new AbortController();
       currentAbortController = abortController;
-      const segmenter = new Intl.Segmenter("en", { granularity: "sentence" });
-      const segments = Array.from(segmenter.segment(text)).map((s) => s.segment.trim()).filter((s) => s.length > 0);
+      const chunks = chunkText(text);
+      if (chunks.length === 0) {
+        stopAudio();
+        return;
+      }
+      const voice = voiceSelect.value || "Jasper";
+      const model = modelSelect.value || "nano";
+      const speed = parseFloat(speedInput.value) || 1;
+      isGenerating = true;
       try {
-        for (let i = 0; i < segments.length; i++) {
+        for (let i = 0; i < chunks.length; i++) {
           if (abortController.signal.aborted) break;
-          let sentence = segments[i];
-          if (sentence.length > 500) {
-            sentence = sentence.substring(0, 500);
+          const chunk = chunks[i];
+          if (!isPlaying) {
+            status.innerText = `Generating chunk ${i + 1}/${chunks.length}...`;
           }
-          status.innerText = `Generating audio (${i + 1}/${segments.length})...`;
-          const blob = await xi(sentence, {
-            voice: voiceSelect.value,
-            model: "nano"
+          const blob = await xi(chunk, {
+            voice,
+            model,
+            speed,
+            onProgress: (stage) => {
+              if (!abortController.signal.aborted && !isPlaying) {
+                status.innerText = `Chunk ${i + 1}/${chunks.length}: ${stage}`;
+              }
+            }
           });
           if (abortController.signal.aborted) break;
           const audioUrl = URL.createObjectURL(blob);
@@ -21962,32 +22023,37 @@ var require_sidepanel = __commonJS({
             playNextInQueue();
           }
         }
-        if (!abortController.signal.aborted) {
-          status.innerText = "Generation complete. Playing...";
-        }
       } catch (error) {
         if (!abortController.signal.aborted) {
-          console.error(error);
+          console.error("TTS Error:", error);
           status.innerText = "Error: " + error.message;
           playBtn.disabled = false;
           stopBtn.style.display = "none";
         }
       } finally {
+        isGenerating = false;
         currentAbortController = null;
       }
     }
     function playNextInQueue() {
       if (audioQueue.length === 0) {
+        if (isGenerating) {
+          status.innerText = "Buffering audio...";
+          isPlaying = false;
+          return;
+        }
         isPlaying = false;
         currentAudio = null;
-        status.innerText = "";
+        status.innerText = "Finished playing.";
         playBtn.disabled = false;
         stopBtn.style.display = "none";
         return;
       }
       isPlaying = true;
+      status.innerText = "Playing audio...";
       const nextAudioUrl = audioQueue.shift();
       currentAudio = new Audio(nextAudioUrl);
+      currentAudio.preload = "auto";
       currentAudio.onended = () => {
         URL.revokeObjectURL(nextAudioUrl);
         currentAudio = null;
