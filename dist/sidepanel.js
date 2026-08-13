@@ -21883,12 +21883,30 @@ var require_sidepanel = __commonJS({
     var textInput = document.getElementById("textInput");
     var voiceSelect = document.getElementById("voiceSelect");
     var playBtn = document.getElementById("playBtn");
+    var stopBtn = document.getElementById("stopBtn");
     var status = document.getElementById("status");
     var audioQueue = [];
     var isPlaying = false;
+    var currentAudio = null;
+    var currentAbortController = null;
+    document.addEventListener("DOMContentLoaded", async () => {
+      const { selectedVoice, ttsText } = await chrome.storage.local.get(["selectedVoice", "ttsText"]);
+      if (selectedVoice) {
+        voiceSelect.value = selectedVoice;
+      }
+      if (ttsText) {
+        textInput.value = ttsText;
+        await chrome.storage.local.remove("ttsText");
+        generateAndPlay(ttsText);
+      }
+    });
+    voiceSelect.addEventListener("change", () => {
+      chrome.storage.local.set({ selectedVoice: voiceSelect.value });
+    });
     chrome.storage.onChanged.addListener((changes) => {
       if (changes.ttsText && changes.ttsText.newValue) {
         textInput.value = changes.ttsText.newValue;
+        chrome.storage.local.remove("ttsText");
         generateAndPlay(changes.ttsText.newValue);
       }
     });
@@ -21897,14 +21915,37 @@ var require_sidepanel = __commonJS({
         generateAndPlay(textInput.value);
       }
     });
-    async function generateAndPlay(text) {
-      playBtn.disabled = true;
+    stopBtn.addEventListener("click", () => {
+      stopAudio();
+    });
+    function stopAudio() {
+      if (currentAbortController) {
+        currentAbortController.abort();
+        currentAbortController = null;
+      }
+      if (currentAudio) {
+        currentAudio.pause();
+        currentAudio.currentTime = 0;
+        currentAudio = null;
+      }
+      audioQueue.forEach((url) => URL.revokeObjectURL(url));
       audioQueue = [];
       isPlaying = false;
+      status.innerText = "Stopped.";
+      playBtn.disabled = false;
+      stopBtn.style.display = "none";
+    }
+    async function generateAndPlay(text) {
+      stopAudio();
+      playBtn.disabled = true;
+      stopBtn.style.display = "block";
+      const abortController = new AbortController();
+      currentAbortController = abortController;
       const segmenter = new Intl.Segmenter("en", { granularity: "sentence" });
       const segments = Array.from(segmenter.segment(text)).map((s) => s.segment.trim()).filter((s) => s.length > 0);
       try {
         for (let i = 0; i < segments.length; i++) {
+          if (abortController.signal.aborted) break;
           let sentence = segments[i];
           if (sentence.length > 500) {
             sentence = sentence.substring(0, 500);
@@ -21914,34 +21955,53 @@ var require_sidepanel = __commonJS({
             voice: voiceSelect.value,
             model: "nano"
           });
+          if (abortController.signal.aborted) break;
           const audioUrl = URL.createObjectURL(blob);
           audioQueue.push(audioUrl);
           if (!isPlaying) {
             playNextInQueue();
           }
         }
-        status.innerText = "Generation complete. Playing...";
+        if (!abortController.signal.aborted) {
+          status.innerText = "Generation complete. Playing...";
+        }
       } catch (error) {
-        console.error(error);
-        status.innerText = "Error: " + error.message;
-        playBtn.disabled = false;
+        if (!abortController.signal.aborted) {
+          console.error(error);
+          status.innerText = "Error: " + error.message;
+          playBtn.disabled = false;
+          stopBtn.style.display = "none";
+        }
+      } finally {
+        currentAbortController = null;
       }
     }
     function playNextInQueue() {
       if (audioQueue.length === 0) {
         isPlaying = false;
+        currentAudio = null;
         status.innerText = "";
         playBtn.disabled = false;
+        stopBtn.style.display = "none";
         return;
       }
       isPlaying = true;
       const nextAudioUrl = audioQueue.shift();
-      const audio = new Audio(nextAudioUrl);
-      audio.onended = () => {
+      currentAudio = new Audio(nextAudioUrl);
+      currentAudio.onended = () => {
         URL.revokeObjectURL(nextAudioUrl);
+        currentAudio = null;
         playNextInQueue();
       };
-      audio.play();
+      currentAudio.onerror = () => {
+        URL.revokeObjectURL(nextAudioUrl);
+        currentAudio = null;
+        playNextInQueue();
+      };
+      currentAudio.play().catch((err) => {
+        console.error("Playback error:", err);
+        playNextInQueue();
+      });
     }
   }
 });

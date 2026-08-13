@@ -1,33 +1,155 @@
 <!DOCTYPE html>
 <html>
 <head>
-  <title>Kitten TTS</title>
+  <title>Kitten TTS WebGPU</title>
   <style>
-    body { font-family: system-ui; padding: 12px; }
-    textarea { width: 100%; height: 100px; margin-bottom: 10px; }
-    select, button { width: 100%; padding: 8px; margin-bottom: 10px; }
+    body {
+      font-family: system-ui, -apple-system, sans-serif;
+      padding: 14px;
+      margin: 0;
+      background-color: #f9f9fb;
+      color: #222;
+    }
+    h4 {
+      margin-top: 0;
+      margin-bottom: 12px;
+      font-size: 16px;
+      color: #111;
+    }
+    .control-group {
+      margin-bottom: 12px;
+    }
+    label {
+      display: block;
+      font-size: 12px;
+      font-weight: 600;
+      margin-bottom: 4px;
+      color: #555;
+    }
+    select, input[type="range"], textarea, button {
+      width: 100%;
+      box-sizing: border-box;
+      font-family: inherit;
+    }
+    select {
+      padding: 8px;
+      border-radius: 6px;
+      border: 1px solid #ccc;
+      background-color: #fff;
+      font-size: 13px;
+    }
+    textarea {
+      height: 100px;
+      padding: 8px;
+      border-radius: 6px;
+      border: 1px solid #ccc;
+      font-size: 13px;
+      resize: vertical;
+    }
+    .slider-container {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .slider-container input {
+      flex: 1;
+    }
+    .slider-value {
+      font-size: 12px;
+      font-weight: bold;
+      width: 36px;
+      text-align: right;
+    }
+    .button-group {
+      display: flex;
+      gap: 8px;
+    }
+    button {
+      padding: 10px;
+      border: none;
+      border-radius: 6px;
+      font-weight: 600;
+      font-size: 13px;
+      cursor: pointer;
+    }
+    #playBtn {
+      background-color: #2563eb;
+      color: white;
+      flex: 2;
+    }
+    #playBtn:hover {
+      background-color: #1d4ed8;
+    }
+    #playBtn:disabled {
+      background-color: #93c5fd;
+      cursor: not-allowed;
+    }
+    #stopBtn {
+      background-color: #ef4444;
+      color: white;
+      flex: 1;
+      display: none;
+    }
+    #stopBtn:hover {
+      background-color: #dc2626;
+    }
+    #status {
+      margin-top: 10px;
+      font-size: 12px;
+      color: #666;
+      min-height: 18px;
+      word-wrap: break-word;
+    }
   </style>
 </head>
 <body>
   <h4>Kitten TTS WebGPU</h4>
-  
-  <select id="voiceSelect">
-    <optgroup label="Female">
-      <option value="Bella">Bella</option>
-      <option value="Luna">Luna</option>
-      <option value="Rosie">Rosie</option>
-      <option value="Kiki">Kiki</option>
-    </optgroup>
-    <optgroup label="Male">
-      <option value="Jasper">Jasper</option>
-      <option value="Bruno">Bruno</option>
-      <option value="Hugo">Hugo</option>
-      <option value="Leo">Leo</option>
-    </optgroup>
-  </select>
 
-  <textarea id="textInput" placeholder="Text to read..."></textarea>
-  <button id="playBtn">Play Audio</button>
+  <div class="control-group">
+    <label for="voiceSelect">Voice</label>
+    <select id="voiceSelect">
+      <optgroup label="Male">
+        <option value="Jasper" selected>Jasper (Default)</option>
+        <option value="Bruno">Bruno</option>
+        <option value="Hugo">Hugo</option>
+        <option value="Leo">Leo</option>
+      </optgroup>
+      <optgroup label="Female">
+        <option value="Bella">Bella</option>
+        <option value="Luna">Luna</option>
+        <option value="Rosie">Rosie</option>
+        <option value="Kiki">Kiki</option>
+      </optgroup>
+    </select>
+  </div>
+
+  <div class="control-group">
+    <label for="modelSelect">Model Quality & Size</label>
+    <select id="modelSelect">
+      <option value="nano">Nano (24 MB - Fast)</option>
+      <option value="micro">Micro (41 MB - Balanced)</option>
+      <option value="mini">Mini (78 MB - Best Quality)</option>
+    </select>
+  </div>
+
+  <div class="control-group">
+    <label for="speedInput">Speech Speed</label>
+    <div class="slider-container">
+      <input type="range" id="speedInput" min="0.5" max="2.0" step="0.1" value="1.0">
+      <span id="speedValue" class="slider-value">1.0x</span>
+    </div>
+  </div>
+
+  <div class="control-group">
+    <label for="textInput">Text to Read</label>
+    <textarea id="textInput" placeholder="Highlight text on a webpage or enter text here..."></textarea>
+  </div>
+
+  <div class="button-group">
+    <button id="playBtn">Play Audio</button>
+    <button id="stopBtn">Stop</button>
+  </div>
+
   <div id="status"></div>
 
   <script type="module" src="dist/sidepanel.js"></script>
