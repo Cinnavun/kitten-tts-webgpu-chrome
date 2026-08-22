@@ -1,244 +1,159 @@
-import { textToSpeech } from 'kitten-tts-webgpu';
+const themeSelect = document.getElementById("themeSelect");
+const extractArticleBtn = document.getElementById("extractArticleBtn");
+const voiceSelect = document.getElementById("voiceSelect");
+const modelSelect = document.getElementById("modelSelect");
+const speedInput = document.getElementById("speedInput");
+const speedValue = document.getElementById("speedValue");
+const textInput = document.getElementById("textInput");
+const clearBtn = document.getElementById("clearBtn");
+const playBtn = document.getElementById("playBtn");
+const stopBtn = document.getElementById("stopBtn");
+const downloadBtn = document.getElementById("downloadBtn");
 
-const textInput = document.getElementById('textInput');
-const voiceSelect = document.getElementById('voiceSelect');
-const modelSelect = document.getElementById('modelSelect');
-const speedInput = document.getElementById('speedInput');
-const speedValue = document.getElementById('speedValue');
-const playBtn = document.getElementById('playBtn');
-const stopBtn = document.getElementById('stopBtn');
-const status = document.getElementById('status');
+const statusDot = document.getElementById("statusDot");
+const statusText = document.getElementById("statusText");
+const progressContainer = document.getElementById("progressContainer");
+const progressFill = document.getElementById("progressFill");
+const snippetText = document.getElementById("snippetText");
 
-let audioQueue = [];
-let isPlaying = false;
-let isGenerating = false;
-let currentAudio = null;
-let currentAbortController = null;
-
-// --- 1. Load Stored Settings & Text ---
-document.addEventListener('DOMContentLoaded', async () => {
-  const settings = await chrome.storage.local.get([
-    'selectedVoice',
-    'selectedModel',
-    'selectedSpeed',
-    'ttsText'
-  ]);
-
-  voiceSelect.value = settings.selectedVoice || 'Jasper';
-
-  if (settings.selectedModel) {
-    modelSelect.value = settings.selectedModel;
+// 1. Theme Manager
+function applyTheme(theme) {
+  if (theme === "auto") {
+    const isDark = window.matchMedia("(prefers-color-scheme: dark)").matches;
+    document.documentElement.setAttribute("data-theme", isDark ? "dark" : "light");
+  } else {
+    document.documentElement.setAttribute("data-theme", theme);
   }
+}
 
-  if (settings.selectedSpeed) {
-    speedInput.value = settings.selectedSpeed;
-    speedValue.innerText = `${parseFloat(settings.selectedSpeed).toFixed(1)}x`;
-  }
-
-  if (settings.ttsText) {
-    textInput.value = settings.ttsText;
-    await chrome.storage.local.remove('ttsText');
-    generateAndPlay(settings.ttsText);
-  }
+chrome.storage.local.get("preferredTheme", (data) => {
+  const saved = data.preferredTheme || "auto";
+  themeSelect.value = saved;
+  applyTheme(saved);
 });
 
-// --- 2. Persist Preferences ---
-voiceSelect.addEventListener('change', () => {
-  chrome.storage.local.set({ selectedVoice: voiceSelect.value });
+themeSelect.addEventListener("change", (e) => {
+  chrome.storage.local.set({ preferredTheme: e.target.value });
+  applyTheme(e.target.value);
 });
 
-modelSelect.addEventListener('change', () => {
-  chrome.storage.local.set({ selectedModel: modelSelect.value });
+window.matchMedia("(prefers-color-scheme: dark)").addEventListener("change", () => {
+  if (themeSelect.value === "auto") applyTheme("auto");
 });
 
-speedInput.addEventListener('input', () => {
-  const speed = parseFloat(speedInput.value).toFixed(1);
-  speedValue.innerText = `${speed}x`;
-  chrome.storage.local.set({ selectedSpeed: speedInput.value });
+// 2. Speed Slider & Clear Input
+speedInput.addEventListener("input", () => {
+  speedValue.textContent = `${speedInput.value}x`;
 });
 
-// --- 3. Storage Listener ---
-chrome.storage.onChanged.addListener((changes) => {
-  if (changes.ttsText && changes.ttsText.newValue) {
-    textInput.value = changes.ttsText.newValue;
-    chrome.storage.local.remove('ttsText');
-    generateAndPlay(changes.ttsText.newValue);
-  }
+clearBtn.addEventListener("click", () => {
+  textInput.value = "";
+  textInput.focus();
 });
 
-// --- 4. Smart Text Chunking (Prevents Awkward Mid-Sentence Pauses) ---
-function chunkText(text) {
-  const cleanText = text.replace(/\s+/g, ' ').trim();
-  if (!cleanText) return [];
-
-  // Common abbreviations to avoid splitting on
-  const abbrRegex = /(?:Mr|Mrs|Ms|Dr|Prof|Sr|Jr|vs|Inc|Ltd|St|Co|Jan|Feb|Mar|Apr|Jun|Jul|Aug|Sep|Oct|Nov|Dec|e\.g|i\.e)\.$/i;
-
-  // Split by main sentence punctuation (. ! ?)
-  const rawSegments = cleanText.split(/(?<=[.!?])\s+/);
-
-  const chunks = [];
-  let currentChunk = '';
-
-  for (let i = 0; i < rawSegments.length; i++) {
-    const seg = rawSegments[i].trim();
-    if (!seg) continue;
-
-    if (currentChunk) {
-      currentChunk += ' ' + seg;
+// 3. Article Extractor Action
+extractArticleBtn.addEventListener("click", async () => {
+  statusText.textContent = "Scanning active tab for article...";
+  chrome.runtime.sendMessage({ type: "EXTRACT_CURRENT_TAB_ARTICLE" }, (response) => {
+    if (response?.article?.text) {
+      textInput.value = response.article.text;
+      statusText.textContent = `Article loaded: "${response.article.title.slice(0, 35)}..."`;
     } else {
-      currentChunk = seg;
+      statusText.textContent = "Could not find a structured article on this page.";
     }
+  });
+});
 
-    const isAbbrev = abbrRegex.test(currentChunk);
-
-    // Merge short segments into 200–300 char chunks unless forced by a true boundary
-    if ((!isAbbrev && currentChunk.length >= 200) || currentChunk.length >= 400) {
-      chunks.push(currentChunk);
-      currentChunk = '';
-    }
-  }
-
-  if (currentChunk) {
-    chunks.push(currentChunk);
-  }
-
-  return chunks;
-}
-
-// --- 5. Playback Handlers ---
-playBtn.addEventListener('click', () => {
-  if (textInput.value.trim()) {
-    generateAndPlay(textInput.value);
+// Load highlighted/article text from storage
+chrome.storage.local.get("ttsText", (data) => {
+  if (data.ttsText) {
+    textInput.value = data.ttsText;
+    chrome.storage.local.remove("ttsText");
   }
 });
 
-stopBtn.addEventListener('click', () => {
-  stopAudio();
+chrome.storage.onChanged.addListener((changes, area) => {
+  if (area === "local" && changes.ttsText?.newValue) {
+    textInput.value = changes.ttsText.newValue;
+    chrome.storage.local.remove("ttsText");
+  }
 });
 
-function stopAudio() {
-  if (currentAbortController) {
-    currentAbortController.abort();
-    currentAbortController = null;
+// 4. Play & Stop Actions
+playBtn.addEventListener("click", async () => {
+  const text = textInput.value.trim();
+  if (!text) {
+    statusText.textContent = "Please enter text or extract an article.";
+    return;
   }
 
-  if (currentAudio) {
-    currentAudio.pause();
-    currentAudio.currentTime = 0;
-    currentAudio = null;
-  }
+  await chrome.runtime.sendMessage({ type: "ENSURE_OFFSCREEN" });
 
-  audioQueue.forEach(url => URL.revokeObjectURL(url));
-  audioQueue = [];
-  isPlaying = false;
-  isGenerating = false;
-
-  status.innerText = "Stopped.";
-  playBtn.disabled = false;
-  stopBtn.style.display = 'none';
-}
-
-async function generateAndPlay(text) {
-  stopAudio();
+  chrome.runtime.sendMessage({
+    target: "offscreen",
+    type: "PLAY_TEXT",
+    text: text,
+    voice: voiceSelect.value,
+    speed: parseFloat(speedInput.value),
+    model: modelSelect.value
+  });
 
   playBtn.disabled = true;
-  stopBtn.style.display = 'block';
+  stopBtn.disabled = false;
+  downloadBtn.style.display = "none";
+  progressContainer.style.display = "block";
+  progressFill.style.width = "0%";
+  statusDot.className = "status-dot busy";
+  statusText.textContent = "Synthesizing with WebGPU...";
+  snippetText.textContent = "";
+});
 
-  const abortController = new AbortController();
-  currentAbortController = abortController;
+stopBtn.addEventListener("click", () => {
+  chrome.runtime.sendMessage({ target: "offscreen", type: "STOP_AUDIO" });
+  resetControls("Stopped.");
+});
 
-  const chunks = chunkText(text);
-  if (chunks.length === 0) {
-    stopAudio();
-    return;
-  }
-
-  const voice = voiceSelect.value || 'Jasper';
-  const model = modelSelect.value || 'nano';
-  const speed = parseFloat(speedInput.value) || 1.0;
-
-  isGenerating = true;
-
-  try {
-    for (let i = 0; i < chunks.length; i++) {
-      if (abortController.signal.aborted) break;
-
-      const chunk = chunks[i];
-      if (!isPlaying) {
-        status.innerText = `Generating chunk ${i + 1}/${chunks.length}...`;
-      }
-
-      const blob = await textToSpeech(chunk, {
-        voice: voice,
-        model: model,
-        speed: speed,
-        onProgress: (stage) => {
-          if (!abortController.signal.aborted && !isPlaying) {
-            status.innerText = `Chunk ${i + 1}/${chunks.length}: ${stage}`;
-          }
-        }
-      });
-
-      if (abortController.signal.aborted) break;
-
-      const audioUrl = URL.createObjectURL(blob);
-      audioQueue.push(audioUrl);
-
-      if (!isPlaying) {
-        playNextInQueue();
-      }
+downloadBtn.addEventListener("click", () => {
+  chrome.runtime.sendMessage({ target: "offscreen", type: "GET_DOWNLOAD_BLOB" }, (res) => {
+    if (res?.dataUrl) {
+      const a = document.createElement("a");
+      a.href = res.dataUrl;
+      a.download = "kitten-tts-audio.wav";
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
     }
-  } catch (error) {
-    if (!abortController.signal.aborted) {
-      console.error("TTS Error:", error);
-      status.innerText = "Error: " + error.message;
-      playBtn.disabled = false;
-      stopBtn.style.display = 'none';
-    }
-  } finally {
-    isGenerating = false;
-    currentAbortController = null;
-  }
-}
-
-function playNextInQueue() {
-  if (audioQueue.length === 0) {
-    if (isGenerating) {
-      status.innerText = "Buffering audio...";
-      isPlaying = false;
-      return;
-    }
-
-    isPlaying = false;
-    currentAudio = null;
-    status.innerText = "Finished playing.";
-    playBtn.disabled = false;
-    stopBtn.style.display = 'none';
-    return;
-  }
-
-  isPlaying = true;
-  status.innerText = "Playing audio...";
-
-  const nextAudioUrl = audioQueue.shift();
-  currentAudio = new Audio(nextAudioUrl);
-  currentAudio.preload = 'auto';
-
-  currentAudio.onended = () => {
-    URL.revokeObjectURL(nextAudioUrl);
-    currentAudio = null;
-    playNextInQueue();
-  };
-
-  currentAudio.onerror = () => {
-    URL.revokeObjectURL(nextAudioUrl);
-    currentAudio = null;
-    playNextInQueue();
-  };
-
-  currentAudio.play().catch(err => {
-    console.error("Playback error:", err);
-    playNextInQueue();
   });
+});
+
+function resetControls(statusMsg, isError = false) {
+  playBtn.disabled = false;
+  stopBtn.disabled = true;
+  progressContainer.style.display = "none";
+  progressFill.style.width = "0%";
+  statusDot.className = "status-dot";
+  statusText.textContent = statusMsg;
+  snippetText.textContent = "";
 }
+
+// 5. Progress Listener
+chrome.runtime.onMessage.addListener((msg) => {
+  if (msg.type === "TTS_PROGRESS") {
+    statusDot.className = "status-dot busy";
+    progressContainer.style.display = "block";
+    progressFill.style.width = `${msg.percent}%`;
+    statusText.textContent = `Chunk ${msg.current} of ${msg.total} (${msg.percent}%)`;
+    snippetText.textContent = msg.snippet ? `“${msg.snippet}”` : "";
+    stopBtn.disabled = false;
+  } else if (msg.type === "TTS_STATUS") {
+    if (msg.state === "idle") {
+      resetControls("Finished playing.");
+    } else if (msg.state === "stopped") {
+      resetControls("Stopped.");
+    } else if (msg.state === "error") {
+      resetControls(msg.status || "Error occurred", true);
+    }
+  } else if (msg.type === "TTS_AUDIO_READY") {
+    downloadBtn.style.display = "block";
+  }
+});

@@ -1,156 +1,339 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
+  <meta charset="utf-8">
   <title>Kitten TTS WebGPU</title>
   <style>
+    :root {
+      --font-stack: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Inter", sans-serif;
+      --bg: #f8fafc;
+      --card-bg: #ffffff;
+      --card-border: #e2e8f0;
+      --text-main: #0f172a;
+      --text-muted: #64748b;
+      --text-sub: #94a3b8;
+      
+      --accent: #4f46e5;
+      --accent-gradient: linear-gradient(135deg, #6366f1 0%, #4f46e5 100%);
+      --stop-bg: #ef4444;
+      --stop-hover: #dc2626;
+      --success-bg: #10b981;
+      --success-hover: #059669;
+      
+      --input-bg: #ffffff;
+      --input-border: #cbd5e1;
+      --input-focus: #6366f1;
+      --shadow-sm: 0 1px 2px 0 rgba(0, 0, 0, 0.05);
+      --progress-track: #e2e8f0;
+      --badge-bg: #e0e7ff;
+      --badge-text: #3730a3;
+      --reader-bg: #eef2ff;
+      --reader-border: #c7d2fe;
+    }
+
+    [data-theme="dark"] {
+      --bg: #09090b;
+      --card-bg: #18181b;
+      --card-border: #27272a;
+      --text-main: #f8fafc;
+      --text-muted: #a1a1aa;
+      --text-sub: #71717a;
+      
+      --accent: #6366f1;
+      --accent-gradient: linear-gradient(135deg, #818cf8 0%, #6366f1 100%);
+      --stop-bg: #f87171;
+      --stop-hover: #ef4444;
+      --success-bg: #34d399;
+      --success-hover: #10b981;
+      
+      --input-bg: #121214;
+      --input-border: #27272a;
+      --input-focus: #818cf8;
+      --shadow-sm: 0 1px 2px 0 rgba(0, 0, 0, 0.3);
+      --progress-track: #27272a;
+      --badge-bg: #312e81;
+      --badge-text: #c7d2fe;
+      --reader-bg: #1e1b4b;
+      --reader-border: #3730a3;
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
     body {
-      font-family: system-ui, -apple-system, sans-serif;
+      font-family: var(--font-stack);
+      background-color: var(--bg);
+      color: var(--text-main);
       padding: 14px;
-      margin: 0;
-      background-color: #f9f9fb;
-      color: #222;
+      line-height: 1.45;
+      min-width: 280px;
     }
-    h4 {
-      margin-top: 0;
-      margin-bottom: 12px;
-      font-size: 16px;
-      color: #111;
-    }
-    .control-group {
-      margin-bottom: 12px;
-    }
-    label {
-      display: block;
-      font-size: 12px;
-      font-weight: 600;
-      margin-bottom: 4px;
-      color: #555;
-    }
-    select, input[type="range"], textarea, button {
-      width: 100%;
-      box-sizing: border-box;
-      font-family: inherit;
-    }
-    select {
-      padding: 8px;
-      border-radius: 6px;
-      border: 1px solid #ccc;
-      background-color: #fff;
-      font-size: 13px;
-    }
-    textarea {
-      height: 100px;
-      padding: 8px;
-      border-radius: 6px;
-      border: 1px solid #ccc;
-      font-size: 13px;
-      resize: vertical;
-    }
-    .slider-container {
+
+    .app-header {
       display: flex;
       align-items: center;
-      gap: 8px;
+      justify-content: space-between;
+      margin-bottom: 12px;
+      padding-bottom: 10px;
+      border-bottom: 1px solid var(--card-border);
     }
-    .slider-container input {
-      flex: 1;
+
+    .brand { display: flex; align-items: center; gap: 8px; }
+    .brand-avatar { font-size: 16px; }
+    .brand-name { font-size: 14px; font-weight: 700; }
+    .badge-gpu {
+      font-size: 10px; font-weight: 700; padding: 2px 6px;
+      border-radius: 9999px; background: var(--badge-bg); color: var(--badge-text);
     }
-    .slider-value {
-      font-size: 12px;
-      font-weight: bold;
-      width: 36px;
-      text-align: right;
+
+    .theme-select {
+      padding: 3px 6px; font-size: 11px; border-radius: 6px;
+      border: 1px solid var(--card-border); background: var(--card-bg); color: var(--text-muted);
     }
-    .button-group {
+
+    /* Article Reader Toolbar */
+    .reader-banner {
+      background: var(--reader-bg);
+      border: 1px solid var(--reader-border);
+      border-radius: 10px;
+      padding: 8px 12px;
       display: flex;
-      gap: 8px;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 12px;
     }
-    button {
-      padding: 10px;
+    .reader-info {
+      font-size: 11px;
+      font-weight: 600;
+      color: var(--accent);
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+    .reader-btn {
+      background: var(--accent);
+      color: white;
       border: none;
       border-radius: 6px;
+      padding: 4px 8px;
+      font-size: 11px;
       font-weight: 600;
-      font-size: 13px;
       cursor: pointer;
     }
-    #playBtn {
-      background-color: #2563eb;
-      color: white;
-      flex: 2;
+    .reader-btn:hover { opacity: 0.9; }
+
+    .card {
+      background: var(--card-bg);
+      border: 1px solid var(--card-border);
+      border-radius: 12px;
+      padding: 12px;
+      margin-bottom: 12px;
+      box-shadow: var(--shadow-sm);
     }
-    #playBtn:hover {
-      background-color: #1d4ed8;
+
+    .control-row { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-bottom: 10px; }
+
+    label {
+      display: flex; justify-content: space-between; align-items: center;
+      font-size: 11px; font-weight: 600; text-transform: uppercase;
+      letter-spacing: 0.05em; color: var(--text-muted); margin-bottom: 4px;
     }
-    #playBtn:disabled {
-      background-color: #93c5fd;
-      cursor: not-allowed;
+
+    select, textarea {
+      width: 100%; background: var(--input-bg); border: 1px solid var(--input-border);
+      border-radius: 8px; color: var(--text-main); font-family: inherit;
+      font-size: 12px; outline: none; padding: 7px 9px;
     }
-    #stopBtn {
-      background-color: #ef4444;
-      color: white;
-      flex: 1;
-      display: none;
+
+    textarea { height: 95px; resize: vertical; line-height: 1.4; }
+
+    .textarea-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px; }
+    .clear-btn { background: none; border: none; color: var(--text-sub); font-size: 11px; cursor: pointer; }
+    .clear-btn:hover { color: var(--text-muted); }
+
+    .slider-track { display: flex; align-items: center; gap: 8px; margin-top: 2px; }
+    input[type="range"] { flex: 1; height: 5px; border-radius: 5px; background: var(--progress-track); outline: none; -webkit-appearance: none; }
+    input[type="range"]::-webkit-slider-thumb {
+      -webkit-appearance: none; width: 15px; height: 15px; border-radius: 50%;
+      background: var(--accent); cursor: pointer;
     }
-    #stopBtn:hover {
-      background-color: #dc2626;
+    .slider-pill { font-size: 11px; font-weight: 700; color: var(--accent); background: var(--badge-bg); padding: 2px 5px; border-radius: 5px; }
+
+    .button-group { display: flex; gap: 8px; margin-top: 4px; }
+    button.btn-primary, button.btn-danger, button.btn-success {
+      border: none; border-radius: 8px; padding: 9px 12px; font-size: 12px; font-weight: 600;
+      cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 6px;
     }
-    #status {
+    .btn-primary { background: var(--accent-gradient); color: white; flex: 2; }
+    .btn-primary:disabled { opacity: 0.5; cursor: not-allowed; }
+    .btn-danger { background-color: var(--stop-bg); color: white; flex: 1; }
+    .btn-danger:disabled { opacity: 0.4; cursor: not-allowed; }
+    .btn-success { background-color: var(--success-bg); color: white; width: 100%; margin-top: 8px; display: none; }
+
+    .status-card {
+      background: var(--card-bg); border: 1px solid var(--card-border);
+      border-radius: 10px; padding: 9px 11px; margin-bottom: 12px;
+    }
+    .status-header { display: flex; align-items: center; gap: 6px; font-size: 12px; font-weight: 600; }
+    .status-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--text-sub); }
+    .status-dot.busy { background: #6366f1; box-shadow: 0 0 8px #6366f1; }
+    .progress-bar-container { width: 100%; height: 4px; background: var(--progress-track); border-radius: 4px; margin: 6px 0; overflow: hidden; display: none; }
+    .progress-bar-fill { height: 100%; width: 0%; background: var(--accent-gradient); transition: width 0.25s ease; }
+    .snippet-preview { font-size: 11px; color: var(--text-muted); font-style: italic; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+    /* Attributions Footer */
+    details.attributions {
+      font-size: 11px;
+      color: var(--text-muted);
+      border-top: 1px solid var(--card-border);
+      padding-top: 10px;
       margin-top: 10px;
-      font-size: 12px;
-      color: #666;
-      min-height: 18px;
-      word-wrap: break-word;
+    }
+    details summary {
+      cursor: pointer;
+      font-weight: 600;
+      color: var(--text-sub);
+      list-style: none;
+      display: flex;
+      align-items: center;
+      gap: 4px;
+    }
+    details summary:hover { color: var(--text-muted); }
+    .attr-content {
+      margin-top: 8px;
+      padding: 8px;
+      background: var(--card-bg);
+      border: 1px solid var(--card-border);
+      border-radius: 8px;
+      line-height: 1.5;
+    }
+    .attr-item { margin-bottom: 6px; }
+    .attr-item:last-child { margin-bottom: 0; }
+    .attr-item a { color: var(--accent); text-decoration: none; }
+    .attr-item a:hover { text-decoration: underline; }
+    .kbd-chip {
+      font-family: monospace; font-size: 10px; background: var(--progress-track);
+      padding: 1px 4px; border-radius: 4px; color: var(--text-main);
     }
   </style>
 </head>
 <body>
-  <h4>Kitten TTS WebGPU</h4>
 
-  <div class="control-group">
-    <label for="voiceSelect">Voice</label>
-    <select id="voiceSelect">
-      <optgroup label="Male">
-        <option value="Jasper" selected>Jasper (Default)</option>
-        <option value="Bruno">Bruno</option>
-        <option value="Hugo">Hugo</option>
-        <option value="Leo">Leo</option>
-      </optgroup>
-      <optgroup label="Female">
-        <option value="Bella">Bella</option>
-        <option value="Luna">Luna</option>
-        <option value="Rosie">Rosie</option>
-        <option value="Kiki">Kiki</option>
-      </optgroup>
+  <!-- Header -->
+  <div class="app-header">
+    <div class="brand">
+      <span class="brand-avatar">🐾</span>
+      <div class="brand-name">Kitten TTS</div>
+      <span class="badge-gpu">WebGPU</span>
+    </div>
+    <select id="themeSelect" class="theme-select">
+      <option value="auto">Auto</option>
+      <option value="light">Light</option>
+      <option value="dark">Dark</option>
     </select>
   </div>
 
-  <div class="control-group">
-    <label for="modelSelect">Model Quality & Size</label>
-    <select id="modelSelect">
-      <option value="nano">Nano (24 MB - Fast)</option>
-      <option value="micro">Micro (41 MB - Balanced)</option>
-      <option value="mini">Mini (78 MB - Best Quality)</option>
-    </select>
+  <!-- Smart Reader / Article Extraction Banner -->
+  <div class="reader-banner">
+    <div class="reader-info">
+      <span>📖</span>
+      <span>Reader View</span>
+      <span class="kbd-chip">Alt+Shift+A</span>
+    </div>
+    <button id="extractArticleBtn" class="reader-btn">Extract Page Article</button>
   </div>
 
-  <div class="control-group">
-    <label for="speedInput">Speech Speed</label>
-    <div class="slider-container">
-      <input type="range" id="speedInput" min="0.5" max="2.0" step="0.1" value="1.0">
-      <span id="speedValue" class="slider-value">1.0x</span>
+  <!-- Settings -->
+  <div class="card">
+    <div class="control-row">
+      <div>
+        <label for="voiceSelect">Voice</label>
+        <select id="voiceSelect">
+          <optgroup label="Male">
+            <option value="Jasper" selected>Jasper</option>
+            <option value="Bruno">Bruno</option>
+            <option value="Hugo">Hugo</option>
+            <option value="Leo">Leo</option>
+          </optgroup>
+          <optgroup label="Female">
+            <option value="Bella">Bella</option>
+            <option value="Luna">Luna</option>
+            <option value="Rosie">Rosie</option>
+            <option value="Kiki">Kiki</option>
+          </optgroup>
+        </select>
+      </div>
+
+      <div>
+        <label for="modelSelect">Quality</label>
+        <select id="modelSelect">
+          <option value="nano">Nano (24MB)</option>
+          <option value="micro">Micro (41MB)</option>
+          <option value="mini">Mini (78MB)</option>
+        </select>
+      </div>
+    </div>
+
+    <!-- Speed Slider -->
+    <div>
+      <label for="speedInput">
+        <span>Speed</span>
+        <span id="speedValue" class="slider-pill">1.0x</span>
+      </label>
+      <div class="slider-track">
+        <input type="range" id="speedInput" min="0.5" max="2.0" step="0.1" value="1.0">
+      </div>
     </div>
   </div>
 
-  <div class="control-group">
-    <label for="textInput">Text to Read</label>
-    <textarea id="textInput" placeholder="Highlight text on a webpage or enter text here..."></textarea>
+  <!-- Text Input Card -->
+  <div class="card">
+    <div class="textarea-header">
+      <label for="textInput" style="margin-bottom:0;">Text to Read</label>
+      <button id="clearBtn" class="clear-btn">Clear</button>
+    </div>
+    <textarea id="textInput" placeholder="Highlight text or click 'Extract Page Article'..."></textarea>
+
+    <!-- Buttons -->
+    <div class="button-group">
+      <button id="playBtn" class="btn-primary">▶ Play Audio</button>
+      <button id="stopBtn" class="btn-danger" disabled>⏹ Stop</button>
+    </div>
+    <button id="downloadBtn" class="btn-success">⬇ Download Audio (.wav)</button>
   </div>
 
-  <div class="button-group">
-    <button id="playBtn">Play Audio</button>
-    <button id="stopBtn">Stop</button>
+  <!-- Live Status Card -->
+  <div class="status-card">
+    <div class="status-header">
+      <div id="statusDot" class="status-dot"></div>
+      <span id="statusText">Ready</span>
+    </div>
+    <div id="progressContainer" class="progress-bar-container">
+      <div id="progressFill" class="progress-bar-fill"></div>
+    </div>
+    <div id="snippetText" class="snippet-preview"></div>
   </div>
 
-  <div id="status"></div>
+  <!-- Credits & Attributions Section -->
+  <details class="attributions">
+    <summary>⚖️ Credits & Attributions</summary>
+    <div class="attr-content">
+      <div class="attr-item">
+        <strong>kitten-tts-webgpu</strong> npm package by 
+        <a href="https://github.com/svenflow/kitten-tts-webgpu" target="_blank" rel="noopener noreferrer">Svenflow</a> (MIT)
+      </div>
+      <div class="attr-item">
+        <strong>Kitten TTS</strong> by 
+        <a href="https://huggingface.co/KittenML" target="_blank" rel="noopener noreferrer">KittenML</a> — original model & architecture (Apache 2.0)
+      </div>
+      <div class="attr-item">
+        <strong>espeak-ng</strong> pronunciation dictionary & letter-to-sound rules (GPL-3.0)
+      </div>
+      <div class="attr-item">
+        <strong>phonemizer</strong> by 
+        <a href="https://github.com/xenova/transformers.js" target="_blank" rel="noopener noreferrer">Xenova</a> (espeak-ng WASM backend)
+      </div>
+    </div>
+  </details>
 
   <script type="module" src="dist/sidepanel.js"></script>
 </body>
