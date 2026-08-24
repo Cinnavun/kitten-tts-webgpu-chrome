@@ -1,3 +1,4 @@
+// src/sidepanel.js
 const themeSelect = document.getElementById("themeSelect");
 const extractArticleBtn = document.getElementById("extractArticleBtn");
 const voiceSelect = document.getElementById("voiceSelect");
@@ -16,11 +17,14 @@ const progressContainer = document.getElementById("progressContainer");
 const progressFill = document.getElementById("progressFill");
 const snippetText = document.getElementById("snippetText");
 
-// 1. Theme Manager
+// 1. Theme Management
 function applyTheme(theme) {
   if (theme === "auto") {
     const isDark = window.matchMedia("(prefers-color-scheme: dark)").matches;
-    document.documentElement.setAttribute("data-theme", isDark ? "dark" : "light");
+    document.documentElement.setAttribute(
+      "data-theme",
+      isDark ? "dark" : "light",
+    );
   } else {
     document.documentElement.setAttribute("data-theme", theme);
   }
@@ -37,9 +41,11 @@ themeSelect.addEventListener("change", (e) => {
   applyTheme(e.target.value);
 });
 
-window.matchMedia("(prefers-color-scheme: dark)").addEventListener("change", () => {
-  if (themeSelect.value === "auto") applyTheme("auto");
-});
+window
+  .matchMedia("(prefers-color-scheme: dark)")
+  .addEventListener("change", () => {
+    if (themeSelect.value === "auto") applyTheme("auto");
+  });
 
 // 2. Speed Slider & Clear Input
 speedInput.addEventListener("input", () => {
@@ -54,17 +60,25 @@ clearBtn.addEventListener("click", () => {
 // 3. Article Extractor Action
 extractArticleBtn.addEventListener("click", async () => {
   statusText.textContent = "Scanning active tab for article...";
-  chrome.runtime.sendMessage({ type: "EXTRACT_CURRENT_TAB_ARTICLE" }, (response) => {
-    if (response?.article?.text) {
-      textInput.value = response.article.text;
-      statusText.textContent = `Article loaded: "${response.article.title.slice(0, 35)}..."`;
-    } else {
-      statusText.textContent = "Could not find a structured article on this page.";
-    }
-  });
+  chrome.runtime.sendMessage(
+    { type: "EXTRACT_CURRENT_TAB_ARTICLE" },
+    (response) => {
+      if (response?.article?.text) {
+        textInput.value = response.article.text;
+        const titleSnippet =
+          response.article.title ?
+            response.article.title.slice(0, 30) + "..."
+          : "Text extracted";
+        statusText.textContent = `Article loaded: "${titleSnippet}"`;
+      } else {
+        statusText.textContent =
+          "Could not find a structured article on this page.";
+      }
+    },
+  );
 });
 
-// Load highlighted/article text from storage
+// Load highlighted text from storage
 chrome.storage.local.get("ttsText", (data) => {
   if (data.ttsText) {
     textInput.value = data.ttsText;
@@ -88,14 +102,13 @@ playBtn.addEventListener("click", async () => {
   }
 
   await chrome.runtime.sendMessage({ type: "ENSURE_OFFSCREEN" });
-
   chrome.runtime.sendMessage({
     target: "offscreen",
     type: "PLAY_TEXT",
     text: text,
     voice: voiceSelect.value,
     speed: parseFloat(speedInput.value),
-    model: modelSelect.value
+    model: modelSelect.value,
   });
 
   playBtn.disabled = true;
@@ -114,16 +127,19 @@ stopBtn.addEventListener("click", () => {
 });
 
 downloadBtn.addEventListener("click", () => {
-  chrome.runtime.sendMessage({ target: "offscreen", type: "GET_DOWNLOAD_BLOB" }, (res) => {
-    if (res?.dataUrl) {
-      const a = document.createElement("a");
-      a.href = res.dataUrl;
-      a.download = "kitten-tts-audio.wav";
-      document.body.appendChild(a);
-      a.click();
-      a.remove();
-    }
-  });
+  chrome.runtime.sendMessage(
+    { target: "offscreen", type: "GET_DOWNLOAD_BLOB" },
+    (res) => {
+      if (res?.dataUrl) {
+        const a = document.createElement("a");
+        a.href = res.dataUrl;
+        a.download = "kitten-tts-audio.wav";
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+      }
+    },
+  );
 });
 
 function resetControls(statusMsg, isError = false) {
@@ -152,6 +168,8 @@ chrome.runtime.onMessage.addListener((msg) => {
       resetControls("Stopped.");
     } else if (msg.state === "error") {
       resetControls(msg.status || "Error occurred", true);
+    } else if (msg.state === "busy") {
+      statusText.textContent = msg.status;
     }
   } else if (msg.type === "TTS_AUDIO_READY") {
     downloadBtn.style.display = "block";

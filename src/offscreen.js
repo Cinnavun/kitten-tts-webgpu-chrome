@@ -1,39 +1,12 @@
-import { KittenTTSEngine } from "kitten-tts-webgpu";
+// src/offscreen.js
+import { textToSpeech } from "kitten-tts-webgpu";
 
-let engine = null;
-let currentLoadedModel = null;
 let audioCtx = null;
 let nextStartTime = 0;
 let activeSources = [];
 let collectedAudioBuffers = [];
 let isCancelled = false;
 let isGenerating = false;
-
-// 1. Initialize WebGPU Engine Once and Cache in VRAM
-async function getEngine(modelName = "nano") {
-  if (!engine || currentLoadedModel !== modelName) {
-    chrome.runtime.sendMessage({
-      type: "TTS_STATUS",
-      status: `Loading ${modelName} model into WebGPU...`,
-      state: "busy",
-    });
-
-    engine = new KittenTTSEngine();
-    await engine.init();
-
-    const urls = MODEL_URLS[modelName] || MODEL_URLS.nano;
-    await engine.loadModel(urls.onnx, urls.voices);
-    currentLoadedModel = modelName;
-  }
-  return engine;
-}
-
-// Recover automatically if Windows resets the GPU device
-window.addEventListener("webgpu-device-lost", () => {
-  console.warn("[KittenTTS] WebGPU device lost. Resetting engine instance...");
-  engine = null;
-  currentLoadedModel = null;
-});
 
 function getAudioContext() {
   if (!audioCtx || audioCtx.state === "closed") {
@@ -42,36 +15,31 @@ function getAudioContext() {
   return audioCtx;
 }
 
-// 2. Text Sanitization (Prevents Tensor Mismatches & Pronunciation Glitches)
+// Text Sanitization
 function sanitizeText(text) {
   return text
     .replace(/[“”]/g, '"')
     .replace(/[‘’]/g, "'")
     .replace(/—|–/g, ", ")
-    .replace(/\$(\d+)(?:\.(\d{2}))?/g, (m, d, c) =>
-      c ? `${d} dollars and ${c} cents` : `${d} dollars`,
-    )
+    .replace(/\$(\d+)(?:\.(\d{2}))?/g, (m, d, c) => (c ? `${d} dollars and ${c} cents` : `${d} dollars`))
     .replace(/%/g, " percent")
     .replace(/&/g, " and ")
     .replace(/@/g, " at ")
     .replace(/\+/g, " plus ")
     .replace(/=/g, " equals ")
-    .replace(/[^\x20-\x7E\n]/g, " ") // Strip non-ASCII/emojis that crash phonemizer
+    .replace(/[^\x20-\x7E\n]/g, " ")
     .replace(/\.{2,}/g, ".")
     .replace(/\s+/g, " ")
     .trim();
 }
 
-// 3. Sentence Chunking (~150-250 chars per chunk to stay well below 2s GPU TDR limit)
+// Sentence Chunking (under 500 chars to avoid GPU TDR limits)
 function chunkText(text) {
   const cleaned = sanitizeText(text);
   let sentences = [];
-
   if (typeof Intl !== "undefined" && Intl.Segmenter) {
     const segmenter = new Intl.Segmenter("en", { granularity: "sentence" });
-    sentences = Array.from(segmenter.segment(cleaned)).map((s) =>
-      s.segment.trim(),
-    );
+    sentences = Array.from(segmenter.segment(cleaned)).map((s) => s.segment.trim());
   } else {
     sentences = cleaned
       .replace(/(?<=\b(?:Mr|Mrs|Ms|Dr|Prof|Inc|Ltd|vs|e\.g|i\.e))\./gi, "@DOT@")
@@ -79,26 +47,21 @@ function chunkText(text) {
       .match(/[^.!?\n]+[.!?\n]+|[^.!?\n]+$/g)
       ?.map((s) => s.replace(/@DOT@/g, ".").trim()) || [cleaned];
   }
-
-  // Filter out empty or whitespace-only chunks
   return sentences.filter((s) => /[a-zA-Z0-9]/.test(s));
 }
 
-// 4. Gapless Audio Scheduling on Web Audio Timeline
+// Gapless Web Audio Scheduling
 function scheduleAudioBuffer(audioBuffer) {
   const ctx = getAudioContext();
   if (ctx.state === "suspended") {
     ctx.resume();
   }
-
   const source = ctx.createBufferSource();
   source.buffer = audioBuffer;
   source.connect(ctx.destination);
-
   const startTime = Math.max(ctx.currentTime + 0.05, nextStartTime);
   source.start(startTime);
   nextStartTime = startTime + audioBuffer.duration;
-
   activeSources.push(source);
 
   source.onended = () => {
@@ -107,7 +70,7 @@ function scheduleAudioBuffer(audioBuffer) {
       chrome.runtime.sendMessage({
         type: "TTS_STATUS",
         status: "Finished playing.",
-        state: "idle",
+        state: "idle"
       });
     }
   };
@@ -117,7 +80,6 @@ function stopPlayback() {
   isCancelled = true;
   isGenerating = false;
   nextStartTime = 0;
-
   for (const source of activeSources) {
     try {
       source.stop();
@@ -126,11 +88,10 @@ function stopPlayback() {
   }
   activeSources = [];
   collectedAudioBuffers = [];
-
   chrome.runtime.sendMessage({
     type: "TTS_STATUS",
     status: "Stopped.",
-    state: "stopped",
+    state: "stopped"
   });
 }
 
@@ -138,12 +99,9 @@ function exportMergedWav(buffers, sampleRate = 24000) {
   const totalSamples = buffers.reduce((sum, b) => sum + b.length, 0);
   const wavBuffer = new ArrayBuffer(44 + totalSamples * 2);
   const view = new DataView(wavBuffer);
-
   const writeString = (offset, str) => {
-    for (let i = 0; i < str.length; i++)
-      view.setUint8(offset + i, str.charCodeAt(i));
+    for (let i = 0; i < str.length; i++) view.setUint8(offset + i, str.charCodeAt(i));
   };
-
   writeString(0, "RIFF");
   view.setUint32(4, 36 + totalSamples * 2, true);
   writeString(8, "WAVE");
@@ -157,7 +115,6 @@ function exportMergedWav(buffers, sampleRate = 24000) {
   view.setUint16(34, 16, true);
   writeString(36, "data");
   view.setUint32(40, totalSamples * 2, true);
-
   let offset = 44;
   for (const buf of buffers) {
     const channelData = buf.getChannelData(0);
@@ -166,11 +123,10 @@ function exportMergedWav(buffers, sampleRate = 24000) {
       view.setInt16(offset, s < 0 ? s * 0x8000 : s * 0x7fff, true);
     }
   }
-
   return new Blob([wavBuffer], { type: "audio/wav" });
 }
 
-// 5. Message Listener
+// Runtime Listener
 chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   if (msg.target !== "offscreen") return;
 
@@ -186,41 +142,52 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
           chrome.runtime.sendMessage({
             type: "TTS_STATUS",
             status: "No readable alphanumeric text found.",
-            state: "error",
+            state: "error"
           });
           isGenerating = false;
           return;
         }
 
-        const ttsEngine = await getEngine(msg.model || "nano");
         const ctx = getAudioContext();
         nextStartTime = ctx.currentTime;
         collectedAudioBuffers = [];
 
         chrome.runtime.sendMessage({
           type: "TTS_STATUS",
-          status: "Playing audio...",
-          state: "playing",
+          status: "Synthesizing audio with WebGPU...",
+          state: "playing"
         });
 
         for (let i = 0; i < chunks.length; i++) {
           if (isCancelled) break;
-
           const chunk = chunks[i];
 
-          // Generate audio chunk on warm WebGPU engine (~50ms per chunk)
-          const result = await ttsEngine.generate(chunk, {
-            voice: msg.voice || "Jasper",
-            speed: msg.speed || 1.0,
+          chrome.runtime.sendMessage({
+            type: "TTS_PROGRESS",
+            current: i + 1,
+            total: chunks.length,
+            percent: Math.round(((i + 1) / chunks.length) * 100),
+            snippet: chunk.slice(0, 45)
           });
 
-          if (isCancelled || !result) break;
+          // Generate WAV blob using npm package
+          const blob = await textToSpeech(chunk, {
+            voice: msg.voice || "Jasper",
+            speed: msg.speed || 1.0,
+            model: msg.model || "nano",
+            onProgress: (stage) => {
+              chrome.runtime.sendMessage({
+                type: "TTS_STATUS",
+                status: stage,
+                state: "busy"
+              });
+            }
+          });
 
-          // Convert Float32Array PCM samples directly to AudioBuffer
-          const samples = result.audioData || result;
-          const audioBuffer = ctx.createBuffer(1, samples.length, 24000);
-          audioBuffer.copyToChannel(samples, 0);
+          if (isCancelled || !blob) break;
 
+          const arrayBuf = await blob.arrayBuffer();
+          const audioBuffer = await ctx.decodeAudioData(arrayBuf);
           collectedAudioBuffers.push(audioBuffer);
           scheduleAudioBuffer(audioBuffer);
         }
@@ -235,7 +202,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
         chrome.runtime.sendMessage({
           type: "TTS_STATUS",
           status: `Error: ${err.message}`,
-          state: "error",
+          state: "error"
         });
       }
     })();

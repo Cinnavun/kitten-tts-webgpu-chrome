@@ -1,3 +1,4 @@
+// background.js
 const OFFSCREEN_DOCUMENT_PATH = "offscreen.html";
 
 async function hasOffscreenDocument() {
@@ -14,47 +15,24 @@ async function hasOffscreenDocument() {
 
 async function setupOffscreenDocument() {
   if (await hasOffscreenDocument()) return;
-
   await chrome.offscreen.createDocument({
     url: OFFSCREEN_DOCUMENT_PATH,
     reasons: [chrome.offscreen.Reason.AUDIO_PLAYBACK],
-    justification: "Synthesizing text with KittenTTS WebGPU and playing audio in background"
+    justification: "Synthesizing text with KittenTTS WebGPU"
   });
 }
 
-// In-Page Reader Engine: Accurate article extraction for CNN, BBC, NYT, Medium, Substack, etc.
-function extractArticleContent() {
-  const selection = window.getSelection()?.toString().trim();
-  if (selection && selection.length > 10) {
-    return { title: "", text: selection };
-  }
-
-  // 1. Title detection
-  const title = (
-    document.querySelector('meta[property="og:title"]')?.content ||
-    document.querySelector("h1")?.innerText ||
-    document.title || ""
-  ).trim();
-
-  // 2. Extract visible body paragraphs excluding boilerplate
-  const allParagraphs = Array.from(document.querySelectorAll("p, [data-component='paragraph'], .article__content p"));
-  const validText = [];
-
-  for (const el of allParagraphs) {
-    if (el.closest("nav, header, footer, aside, form, .ad, .advertisement, .comment, .sidebar, .menu, .cnn-footer, [role='navigation']")) {
-      continue;
-    }
-    const txt = el.innerText.trim();
-    if (txt.length >= 25 && !txt.startsWith("©") && !txt.toLowerCase().includes("all rights reserved")) {
-      validText.push(txt);
-    }
-  }
-
-  const bodyText = validText.join("\n\n");
-  return {
-    title,
-    text: title && bodyText ? `${title}.\n\n${bodyText}` : bodyText
-  };
+// Helper to run the bundled Readability extractor on a given tab
+async function runArticleExtractor(tabId) {
+  await chrome.scripting.executeScript({
+    target: { tabId },
+    files: ["dist/extractor.js"]
+  });
+  const results = await chrome.scripting.executeScript({
+    target: { tabId },
+    func: () => window.__kittenArticleExtractor()
+  });
+  return results?.[0]?.result;
 }
 
 chrome.runtime.onInstalled.addListener(() => {
@@ -63,46 +41,35 @@ chrome.runtime.onInstalled.addListener(() => {
     title: "Read Selected Text with Kitten TTS",
     contexts: ["selection"]
   });
-
   if (chrome.sidePanel.setPanelBehavior) {
     chrome.sidePanel.setPanelBehavior({ openPanelOnActionClick: true }).catch(() => {});
   }
 });
 
-// Context Menu Click
-chrome.contextMenus.onClicked.addListener((info, tab) => {
+chrome.contextMenus.onClicked.addListener(async (info, tab) => {
   if (info.menuItemId === "read-aloud-panel" && info.selectionText) {
     if (tab?.windowId) {
-      chrome.sidePanel.open({ windowId: tab.windowId }).catch(() => {});
+      await chrome.sidePanel.open({ windowId: tab.windowId }).catch(() => {});
     }
-
-    (async () => {
-      await chrome.storage.local.set({ ttsText: info.selectionText });
-      await setupOffscreenDocument();
-      chrome.runtime.sendMessage({
-        target: "offscreen",
-        type: "PLAY_TEXT",
-        text: info.selectionText
-      }).catch(() => {});
-    })();
+    await chrome.storage.local.set({ ttsText: info.selectionText });
+    await setupOffscreenDocument();
+    chrome.runtime.sendMessage({
+      target: "offscreen",
+      type: "PLAY_TEXT",
+      text: info.selectionText
+    }).catch(() => {});
   }
 });
 
-// Toolbar click or Keyboard Shortcut handler
+// Shortcut command (Alt+Shift+A)
 chrome.commands.onCommand.addListener(async (command, tab) => {
-  if (command === "read_article_command") {
+  if (command === "read_article_command" && tab?.id) {
     if (tab?.windowId) {
-      chrome.sidePanel.open({ windowId: tab.windowId }).catch(() => {});
+      await chrome.sidePanel.open({ windowId: tab.windowId }).catch(() => {});
     }
-
     try {
-      const results = await chrome.scripting.executeScript({
-        target: { tabId: tab.id },
-        func: extractArticleContent
-      });
-
-      if (results?.[0]?.result?.text) {
-        const article = results[0].result;
+      const article = await runArticleExtractor(tab.id);
+      if (article?.text) {
         await chrome.storage.local.set({ ttsText: article.text });
         await setupOffscreenDocument();
         chrome.runtime.sendMessage({
@@ -112,14 +79,32 @@ chrome.commands.onCommand.addListener(async (command, tab) => {
         }).catch(() => {});
       }
     } catch (err) {
-      console.error("Article extraction error:", err);
+      console.error("[KittenTTS] Article command error:", err);
     }
   }
 });
 
+// Runtime messages from sidepanel
 chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   if (msg.type === "ENSURE_OFFSCREEN") {
     setupOffscreenDocument().then(() => sendResponse({ ready: true }));
+    return true;
+  }
+  if (msg.type === "EXTRACT_CURRENT_TAB_ARTICLE") {
+    (async () => {
+      try {
+        const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+        if (!tab?.id) {
+          sendResponse({ error: "No active tab found." });
+          return;
+        }
+        const article = await runArticleExtractor(tab.id);
+        sendResponse({ article });
+      } catch (err) {
+        console.error("[KittenTTS] Extract message error:", err);
+        sendResponse({ error: err.message });
+      }
+    })();
     return true;
   }
 });
