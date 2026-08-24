@@ -24,6 +24,10 @@
     "activeTab",
     "scripting"
   ],
+  "optional_host_permissions": [
+    "http://*/*",
+    "https://*/*"
+  ],
   "commands": {
     "_execute_action": {
       "suggested_key": {

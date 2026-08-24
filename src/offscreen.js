@@ -15,7 +15,7 @@ function getAudioContext() {
   return audioCtx;
 }
 
-// Text Sanitization
+// 1. Text Sanitization (Expands abbreviations & protects numbers/punctuation)
 function sanitizeText(text) {
   return text
     .replace(/[“”]/g, '"')
@@ -33,24 +33,83 @@ function sanitizeText(text) {
     .trim();
 }
 
-// Sentence Chunking (under 500 chars to avoid GPU TDR limits)
+// 2. Natural Sentence Chunking (Prevents awkward micro-pauses by merging short sentences)
 function chunkText(text) {
   const cleaned = sanitizeText(text);
-  let sentences = [];
+  if (!cleaned) return [];
+
+  // Step A: Parse sentence boundaries
+  let rawSentences = [];
   if (typeof Intl !== "undefined" && Intl.Segmenter) {
     const segmenter = new Intl.Segmenter("en", { granularity: "sentence" });
-    sentences = Array.from(segmenter.segment(cleaned)).map((s) => s.segment.trim());
+    rawSentences = Array.from(segmenter.segment(cleaned)).map((s) => s.segment.trim());
   } else {
-    sentences = cleaned
+    rawSentences = cleaned
       .replace(/(?<=\b(?:Mr|Mrs|Ms|Dr|Prof|Inc|Ltd|vs|e\.g|i\.e))\./gi, "@DOT@")
       .replace(/(?<=\d)\.(?=\d)/g, "@DOT@")
       .match(/[^.!?\n]+[.!?\n]+|[^.!?\n]+$/g)
       ?.map((s) => s.replace(/@DOT@/g, ".").trim()) || [cleaned];
   }
-  return sentences.filter((s) => /[a-zA-Z0-9]/.test(s));
+
+  rawSentences = rawSentences.filter((s) => /[a-zA-Z0-9]/.test(s));
+
+  // Step B: Break down any single sentence that exceeds 350 chars by clause punctuation
+  const MAX_CHUNK = 350;
+  const splitSentences = [];
+
+  for (const s of rawSentences) {
+    if (s.length <= MAX_CHUNK) {
+      splitSentences.push(s);
+    } else {
+      const clauses = s.split(/(?<=[;,—–:])\s+/);
+      let currentClause = "";
+      for (const clause of clauses) {
+        if (clause.length > MAX_CHUNK) {
+          const words = clause.split(/\s+/);
+          let subChunk = "";
+          for (const word of words) {
+            if ((subChunk + " " + word).trim().length > MAX_CHUNK) {
+              if (subChunk) splitSentences.push(subChunk.trim());
+              subChunk = word;
+            } else {
+              subChunk = subChunk ? `${subChunk} ${word}` : word;
+            }
+          }
+          if (subChunk) splitSentences.push(subChunk.trim());
+        } else if ((currentClause + " " + clause).trim().length > MAX_CHUNK) {
+          if (currentClause) splitSentences.push(currentClause.trim());
+          currentClause = clause;
+        } else {
+          currentClause = currentClause ? `${currentClause} ${clause}` : clause;
+        }
+      }
+      if (currentClause) splitSentences.push(currentClause.trim());
+    }
+  }
+
+  // Step C: Merge adjacent short sentences up to ~250-300 chars for smooth speech flow
+  const TARGET_CHUNK = 280;
+  const mergedChunks = [];
+  let buffer = "";
+
+  for (const item of splitSentences) {
+    if (!buffer) {
+      buffer = item;
+    } else if ((buffer + " " + item).length <= TARGET_CHUNK) {
+      buffer = `${buffer} ${item}`;
+    } else {
+      mergedChunks.push(buffer);
+      buffer = item;
+    }
+  }
+  if (buffer) {
+    mergedChunks.push(buffer);
+  }
+
+  return mergedChunks.filter((c) => /[a-zA-Z0-9]/.test(c));
 }
 
-// Gapless Web Audio Scheduling
+// 3. Audio Scheduling
 function scheduleAudioBuffer(audioBuffer) {
   const ctx = getAudioContext();
   if (ctx.state === "suspended") {
@@ -126,7 +185,7 @@ function exportMergedWav(buffers, sampleRate = 24000) {
   return new Blob([wavBuffer], { type: "audio/wav" });
 }
 
-// Runtime Listener
+// 4. Runtime Message Listener
 chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   if (msg.target !== "offscreen") return;
 
@@ -154,33 +213,34 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
 
         chrome.runtime.sendMessage({
           type: "TTS_STATUS",
-          status: "Synthesizing audio with WebGPU...",
+          status: "Initializing WebGPU...",
           state: "playing"
         });
 
         for (let i = 0; i < chunks.length; i++) {
           if (isCancelled) break;
           const chunk = chunks[i];
+          const percent = Math.round(((i + 1) / chunks.length) * 100);
 
           chrome.runtime.sendMessage({
             type: "TTS_PROGRESS",
+            percent: percent,
             current: i + 1,
-            total: chunks.length,
-            percent: Math.round(((i + 1) / chunks.length) * 100),
-            snippet: chunk.slice(0, 45)
+            total: chunks.length
           });
 
-          // Generate WAV blob using npm package
           const blob = await textToSpeech(chunk, {
             voice: msg.voice || "Jasper",
             speed: msg.speed || 1.0,
             model: msg.model || "nano",
             onProgress: (stage) => {
-              chrome.runtime.sendMessage({
-                type: "TTS_STATUS",
-                status: stage,
-                state: "busy"
-              });
+              if (stage.includes("Downloading")) {
+                chrome.runtime.sendMessage({
+                  type: "TTS_STATUS",
+                  status: stage,
+                  state: "busy"
+                });
+              }
             }
           });
 
@@ -201,7 +261,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
         isGenerating = false;
         chrome.runtime.sendMessage({
           type: "TTS_STATUS",
-          status: `Error: ${err.message}`,
+          status: `GPU Error: ${err.message}`,
           state: "error"
         });
       }
@@ -218,5 +278,23 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       reader.readAsDataURL(mergedBlob);
       return true;
     }
+  } else if (msg.type === "FLUSH_ENGINE_CACHE") {
+    (async () => {
+      try {
+        stopPlayback();
+        if (audioCtx && audioCtx.state !== "closed") {
+          await audioCtx.close();
+          audioCtx = null;
+        }
+        if ("caches" in window) {
+          const cacheKeys = await caches.keys();
+          await Promise.all(cacheKeys.map((k) => caches.delete(k)));
+        }
+        sendResponse({ success: true });
+      } catch (err) {
+        sendResponse({ success: false, error: err.message });
+      }
+    })();
+    return true;
   }
 });

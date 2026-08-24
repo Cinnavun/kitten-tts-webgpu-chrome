@@ -305,7 +305,7 @@
   <body>
 
     <!-- Header -->
-    <div class="app-header">
+<div class="app-header">
       <div class="brand">
         <span>🐾</span>
         <div class="brand-name">Kitten TTS</div>
@@ -387,17 +387,19 @@
       </button>
     </div>
 
-    <!-- Status & Progress -->
-    <div class="status-card">
-      <div class="status-header">
-        <div id="statusDot" class="status-dot"></div>
-        <span id="statusText">Ready</span>
-      </div>
-      <div id="progressContainer" class="progress-bar-container">
-        <div id="progressFill" class="progress-bar-fill"></div>
-      </div>
-      <div id="snippetText" class="snippet-text"></div>
+<!-- Status & Progress -->
+  <div class="status-card">
+    <div class="status-header">
+      <div id="statusDot" class="status-dot"></div>
+      <span id="statusText">Ready</span>
     </div>
+    <div id="progressContainer" class="progress-bar-container">
+      <div id="progressFill" class="progress-bar-fill"></div>
+    </div>
+    <div style="display: flex; justify-content: flex-end; margin-top: 8px;">
+      <button id="resetGpuBtn" class="clear-btn" title="Recreates GPU worker and clears model cache">🔄 Reset Engine / Clear Cache</button>
+    </div>
+  </div>
 
     <!-- Attributions Section -->
     <details class="attributions">

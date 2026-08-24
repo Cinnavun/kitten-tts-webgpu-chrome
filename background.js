@@ -85,9 +85,29 @@ chrome.commands.onCommand.addListener(async (command, tab) => {
 });
 
 // Runtime messages from sidepanel
+// Add to background.js chrome.runtime.onMessage listener
 chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   if (msg.type === "ENSURE_OFFSCREEN") {
     setupOffscreenDocument().then(() => sendResponse({ ready: true }));
+    return true;
+  }
+  if (msg.type === "RESET_GPU_OFFSCREEN") {
+    (async () => {
+      try {
+        if (await hasOffscreenDocument()) {
+          await chrome.offscreen.closeDocument();
+        }
+        await setupOffscreenDocument();
+        chrome.runtime.sendMessage(
+          { target: "offscreen", type: "FLUSH_ENGINE_CACHE" },
+          (res) => {
+            sendResponse({ success: true, message: "Engine reset & cache cleared." });
+          }
+        );
+      } catch (err) {
+        sendResponse({ success: false, error: err.message });
+      }
+    })();
     return true;
   }
   if (msg.type === "EXTRACT_CURRENT_TAB_ARTICLE") {

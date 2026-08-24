@@ -10,12 +10,12 @@ const clearBtn = document.getElementById("clearBtn");
 const playBtn = document.getElementById("playBtn");
 const stopBtn = document.getElementById("stopBtn");
 const downloadBtn = document.getElementById("downloadBtn");
-
 const statusDot = document.getElementById("statusDot");
 const statusText = document.getElementById("statusText");
 const progressContainer = document.getElementById("progressContainer");
 const progressFill = document.getElementById("progressFill");
 const snippetText = document.getElementById("snippetText");
+const resetGpuBtn = document.getElementById("resetGpuBtn");
 
 // 1. Theme Management
 function applyTheme(theme) {
@@ -59,37 +59,48 @@ clearBtn.addEventListener("click", () => {
 
 // 3. Article Extractor Action
 extractArticleBtn.addEventListener("click", async () => {
-  statusText.textContent = "Scanning active tab for article...";
-  chrome.runtime.sendMessage(
-    { type: "EXTRACT_CURRENT_TAB_ARTICLE" },
-    (response) => {
+  try {
+    statusText.textContent = "Checking page access permissions...";
+
+    // 1. Check if permission is already granted
+    const hasPermission = await chrome.permissions.contains({
+      origins: ["http://*/*", "https://*/*"]
+    });
+
+    // 2. If not granted, prompt the user for permission
+    if (!hasPermission) {
+      const granted = await chrome.permissions.request({
+        origins: ["http://*/*", "https://*/*"]
+      });
+
+      if (!granted) {
+        statusText.textContent = "Permission denied. Cannot scan page.";
+        return;
+      }
+    }
+
+    // 3. Request article extraction from the background script
+    statusText.textContent = "Scanning active tab for article...";
+
+    chrome.runtime.sendMessage({ type: "EXTRACT_CURRENT_TAB_ARTICLE" }, (response) => {
+      if (response?.error) {
+        statusText.textContent = `Error: ${response.error}`;
+        return;
+      }
+
       if (response?.article?.text) {
         textInput.value = response.article.text;
-        const titleSnippet =
-          response.article.title ?
-            response.article.title.slice(0, 30) + "..."
-          : "Text extracted";
-        statusText.textContent = `Article loaded: "${titleSnippet}"`;
+        const titleSnippet = response.article.title
+          ? response.article.title.slice(0, 30) + "..."
+          : "Article";
+        statusText.textContent = `Loaded: "${titleSnippet}"`;
       } else {
-        statusText.textContent =
-          "Could not find a structured article on this page.";
+        statusText.textContent = "Could not find a structured article on this page.";
       }
-    },
-  );
-});
-
-// Load highlighted text from storage
-chrome.storage.local.get("ttsText", (data) => {
-  if (data.ttsText) {
-    textInput.value = data.ttsText;
-    chrome.storage.local.remove("ttsText");
-  }
-});
-
-chrome.storage.onChanged.addListener((changes, area) => {
-  if (area === "local" && changes.ttsText?.newValue) {
-    textInput.value = changes.ttsText.newValue;
-    chrome.storage.local.remove("ttsText");
+    });
+  } catch (err) {
+    console.error("Permission / Extraction error:", err);
+    statusText.textContent = `Error: ${err.message}`;
   }
 });
 
@@ -152,14 +163,13 @@ function resetControls(statusMsg, isError = false) {
   snippetText.textContent = "";
 }
 
-// 5. Progress Listener
+// Progress Listener: Clean Percentage Display
 chrome.runtime.onMessage.addListener((msg) => {
   if (msg.type === "TTS_PROGRESS") {
     statusDot.className = "status-dot busy";
     progressContainer.style.display = "block";
     progressFill.style.width = `${msg.percent}%`;
-    statusText.textContent = `Chunk ${msg.current} of ${msg.total} (${msg.percent}%)`;
-    snippetText.textContent = msg.snippet ? `“${msg.snippet}”` : "";
+    statusText.textContent = `Synthesizing audio... ${msg.percent}%`;
     stopBtn.disabled = false;
   } else if (msg.type === "TTS_STATUS") {
     if (msg.state === "idle") {
@@ -168,10 +178,22 @@ chrome.runtime.onMessage.addListener((msg) => {
       resetControls("Stopped.");
     } else if (msg.state === "error") {
       resetControls(msg.status || "Error occurred", true);
+    } else if (msg.state === "playing") {
+      statusText.textContent = "Playing audio...";
+      statusDot.className = "status-dot playing";
     } else if (msg.state === "busy") {
       statusText.textContent = msg.status;
     }
   } else if (msg.type === "TTS_AUDIO_READY") {
     downloadBtn.style.display = "block";
   }
+});
+
+// Reset Engine / Cache Action
+resetGpuBtn.addEventListener("click", () => {
+  statusText.textContent = "Resetting GPU process and clearing cache...";
+  statusDot.className = "status-dot busy";
+  chrome.runtime.sendMessage({ type: "RESET_GPU_OFFSCREEN" }, (res) => {
+    resetControls(res?.message || "WebGPU engine reset.");
+  });
 });

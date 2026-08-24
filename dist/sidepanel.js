@@ -15,10 +15,14 @@ var statusText = document.getElementById("statusText");
 var progressContainer = document.getElementById("progressContainer");
 var progressFill = document.getElementById("progressFill");
 var snippetText = document.getElementById("snippetText");
+var resetGpuBtn = document.getElementById("resetGpuBtn");
 function applyTheme(theme) {
   if (theme === "auto") {
     const isDark = window.matchMedia("(prefers-color-scheme: dark)").matches;
-    document.documentElement.setAttribute("data-theme", isDark ? "dark" : "light");
+    document.documentElement.setAttribute(
+      "data-theme",
+      isDark ? "dark" : "light"
+    );
   } else {
     document.documentElement.setAttribute("data-theme", theme);
   }
@@ -43,27 +47,37 @@ clearBtn.addEventListener("click", () => {
   textInput.focus();
 });
 extractArticleBtn.addEventListener("click", async () => {
-  statusText.textContent = "Scanning active tab for article...";
-  chrome.runtime.sendMessage({ type: "EXTRACT_CURRENT_TAB_ARTICLE" }, (response) => {
-    if (response?.article?.text) {
-      textInput.value = response.article.text;
-      const titleSnippet = response.article.title ? response.article.title.slice(0, 30) + "..." : "Text extracted";
-      statusText.textContent = `Article loaded: "${titleSnippet}"`;
-    } else {
-      statusText.textContent = "Could not find a structured article on this page.";
+  try {
+    statusText.textContent = "Checking page access permissions...";
+    const hasPermission = await chrome.permissions.contains({
+      origins: ["http://*/*", "https://*/*"]
+    });
+    if (!hasPermission) {
+      const granted = await chrome.permissions.request({
+        origins: ["http://*/*", "https://*/*"]
+      });
+      if (!granted) {
+        statusText.textContent = "Permission denied. Cannot scan page.";
+        return;
+      }
     }
-  });
-});
-chrome.storage.local.get("ttsText", (data) => {
-  if (data.ttsText) {
-    textInput.value = data.ttsText;
-    chrome.storage.local.remove("ttsText");
-  }
-});
-chrome.storage.onChanged.addListener((changes, area) => {
-  if (area === "local" && changes.ttsText?.newValue) {
-    textInput.value = changes.ttsText.newValue;
-    chrome.storage.local.remove("ttsText");
+    statusText.textContent = "Scanning active tab for article...";
+    chrome.runtime.sendMessage({ type: "EXTRACT_CURRENT_TAB_ARTICLE" }, (response) => {
+      if (response?.error) {
+        statusText.textContent = `Error: ${response.error}`;
+        return;
+      }
+      if (response?.article?.text) {
+        textInput.value = response.article.text;
+        const titleSnippet = response.article.title ? response.article.title.slice(0, 30) + "..." : "Article";
+        statusText.textContent = `Loaded: "${titleSnippet}"`;
+      } else {
+        statusText.textContent = "Could not find a structured article on this page.";
+      }
+    });
+  } catch (err) {
+    console.error("Permission / Extraction error:", err);
+    statusText.textContent = `Error: ${err.message}`;
   }
 });
 playBtn.addEventListener("click", async () => {
@@ -95,16 +109,19 @@ stopBtn.addEventListener("click", () => {
   resetControls("Stopped.");
 });
 downloadBtn.addEventListener("click", () => {
-  chrome.runtime.sendMessage({ target: "offscreen", type: "GET_DOWNLOAD_BLOB" }, (res) => {
-    if (res?.dataUrl) {
-      const a = document.createElement("a");
-      a.href = res.dataUrl;
-      a.download = "kitten-tts-audio.wav";
-      document.body.appendChild(a);
-      a.click();
-      a.remove();
+  chrome.runtime.sendMessage(
+    { target: "offscreen", type: "GET_DOWNLOAD_BLOB" },
+    (res) => {
+      if (res?.dataUrl) {
+        const a = document.createElement("a");
+        a.href = res.dataUrl;
+        a.download = "kitten-tts-audio.wav";
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+      }
     }
-  });
+  );
 });
 function resetControls(statusMsg, isError = false) {
   playBtn.disabled = false;
@@ -120,8 +137,7 @@ chrome.runtime.onMessage.addListener((msg) => {
     statusDot.className = "status-dot busy";
     progressContainer.style.display = "block";
     progressFill.style.width = `${msg.percent}%`;
-    statusText.textContent = `Chunk ${msg.current} of ${msg.total} (${msg.percent}%)`;
-    snippetText.textContent = msg.snippet ? `\u201C${msg.snippet}\u201D` : "";
+    statusText.textContent = `Synthesizing audio... ${msg.percent}%`;
     stopBtn.disabled = false;
   } else if (msg.type === "TTS_STATUS") {
     if (msg.state === "idle") {
@@ -130,10 +146,20 @@ chrome.runtime.onMessage.addListener((msg) => {
       resetControls("Stopped.");
     } else if (msg.state === "error") {
       resetControls(msg.status || "Error occurred", true);
+    } else if (msg.state === "playing") {
+      statusText.textContent = "Playing audio...";
+      statusDot.className = "status-dot playing";
     } else if (msg.state === "busy") {
       statusText.textContent = msg.status;
     }
   } else if (msg.type === "TTS_AUDIO_READY") {
     downloadBtn.style.display = "block";
   }
+});
+resetGpuBtn.addEventListener("click", () => {
+  statusText.textContent = "Resetting GPU process and clearing cache...";
+  statusDot.className = "status-dot busy";
+  chrome.runtime.sendMessage({ type: "RESET_GPU_OFFSCREEN" }, (res) => {
+    resetControls(res?.message || "WebGPU engine reset.");
+  });
 });
