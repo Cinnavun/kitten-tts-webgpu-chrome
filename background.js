@@ -22,16 +22,31 @@ async function setupOffscreenDocument() {
   });
 }
 
-// Helper to run the bundled Readability extractor on a given tab
-async function runArticleExtractor(tabId) {
+async function runArticleExtractor(tab) {
+  if (!tab || !tab.id) {
+    throw new Error("No active tab found.");
+  }
+  if (
+    !tab.url ||
+    tab.url.startsWith("chrome://") ||
+    tab.url.startsWith("edge://") ||
+    tab.url.startsWith("chrome-extension://") ||
+    tab.url.startsWith("about:") ||
+    tab.url.includes("chromewebstore.google.com")
+  ) {
+    throw new Error("Cannot extract articles from browser internal pages.");
+  }
+
   await chrome.scripting.executeScript({
-    target: { tabId },
+    target: { tabId: tab.id },
     files: ["dist/extractor.js"]
   });
+
   const results = await chrome.scripting.executeScript({
-    target: { tabId },
-    func: () => window.__kittenArticleExtractor()
+    target: { tabId: tab.id },
+    func: () => window.__kittenArticleExtractor?.()
   });
+
   return results?.[0]?.result;
 }
 
@@ -61,14 +76,13 @@ chrome.contextMenus.onClicked.addListener(async (info, tab) => {
   }
 });
 
-// Shortcut command (Alt+Shift+A)
 chrome.commands.onCommand.addListener(async (command, tab) => {
   if (command === "read_article_command" && tab?.id) {
     if (tab?.windowId) {
       await chrome.sidePanel.open({ windowId: tab.windowId }).catch(() => {});
     }
     try {
-      const article = await runArticleExtractor(tab.id);
+      const article = await runArticleExtractor(tab);
       if (article?.text) {
         await chrome.storage.local.set({ ttsText: article.text });
         await setupOffscreenDocument();
@@ -79,13 +93,11 @@ chrome.commands.onCommand.addListener(async (command, tab) => {
         }).catch(() => {});
       }
     } catch (err) {
-      console.error("[KittenTTS] Article command error:", err);
+      console.error("[KittenTTS] Command error:", err);
     }
   }
 });
 
-// Runtime messages from sidepanel
-// Add to background.js chrome.runtime.onMessage listener
 chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   if (msg.type === "ENSURE_OFFSCREEN") {
     setupOffscreenDocument().then(() => sendResponse({ ready: true }));
@@ -95,16 +107,17 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     (async () => {
       try {
         if (await hasOffscreenDocument()) {
-          await chrome.offscreen.closeDocument();
+          await chrome.offscreen.closeDocument().catch(() => {});
         }
+        if ("caches" in self) {
+          const keys = await caches.keys();
+          await Promise.all(keys.map((k) => caches.delete(k)));
+        }
+        await chrome.storage.local.remove(["ttsText"]).catch(() => {});
         await setupOffscreenDocument();
-        chrome.runtime.sendMessage(
-          { target: "offscreen", type: "FLUSH_ENGINE_CACHE" },
-          (res) => {
-            sendResponse({ success: true, message: "Engine reset & cache cleared." });
-          }
-        );
+        sendResponse({ success: true, message: "GPU engine reset & cache cleared." });
       } catch (err) {
+        console.error("[KittenTTS] Reset error:", err);
         sendResponse({ success: false, error: err.message });
       }
     })();
@@ -118,7 +131,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
           sendResponse({ error: "No active tab found." });
           return;
         }
-        const article = await runArticleExtractor(tab.id);
+        const article = await runArticleExtractor(tab);
         sendResponse({ article });
       } catch (err) {
         console.error("[KittenTTS] Extract message error:", err);

@@ -15,45 +15,82 @@ function getAudioContext() {
   return audioCtx;
 }
 
-// 1. Text Sanitization (Expands abbreviations & protects numbers/punctuation)
-function sanitizeText(text) {
-  return text
-    .replace(/[“”]/g, '"')
-    .replace(/[‘’]/g, "'")
-    .replace(/—|–/g, ", ")
-    .replace(/\$(\d+)(?:\.(\d{2}))?/g, (m, d, c) => (c ? `${d} dollars and ${c} cents` : `${d} dollars`))
-    .replace(/%/g, " percent")
-    .replace(/&/g, " and ")
-    .replace(/@/g, " at ")
-    .replace(/\+/g, " plus ")
-    .replace(/=/g, " equals ")
-    .replace(/[^\x20-\x7E\n]/g, " ")
-    .replace(/\.{2,}/g, ".")
-    .replace(/\s+/g, " ")
-    .trim();
+// 1. Comprehensive Text Sanitization (Strips symbols, expands abbreviations & currency)
+function sanitizeTextForTTS(text) {
+  if (!text) return "";
+  let cleaned = text;
+
+  // Replace URLs and emails
+  cleaned = cleaned.replace(/https?:\/\/\S+/gi, " link ");
+  cleaned = cleaned.replace(/\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}\b/g, " email ");
+
+  // Strip HTML tags and markdown symbols
+  cleaned = cleaned.replace(/<[^>]*>/g, " ");
+  cleaned = cleaned.replace(/[*_#`~|\[\]\(\)\{\}\<\>\\\/^]/g, " ");
+
+  // Normalize quotes and dashes
+  cleaned = cleaned.replace(/[“”„«»]/g, '"');
+  cleaned = cleaned.replace(/[‘’‚‹›`]/g, "'");
+  cleaned = cleaned.replace(/[—–―−]/g, ", ");
+
+  // Currency conversions
+  cleaned = cleaned.replace(/\$(\d+)(?:\.(\d{2}))?/g, (m, d, c) => (c ? `${d} dollars and ${c} cents` : `${d} dollars`));
+  cleaned = cleaned.replace(/£(\d+)(?:\.(\d{2}))?/g, (m, d, c) => (c ? `${d} pounds and ${c} cents` : `${d} pounds`));
+  cleaned = cleaned.replace(/€(\d+)(?:\.(\d{2}))?/g, (m, d, c) => (c ? `${d} euros and ${c} cents` : `${d} euros`));
+  cleaned = cleaned.replace(/¥(\d+)/g, "$1 yen");
+
+  // Symbols to spoken English
+  cleaned = cleaned.replace(/%/g, " percent ");
+  cleaned = cleaned.replace(/&/g, " and ");
+  cleaned = cleaned.replace(/@/g, " at ");
+  cleaned = cleaned.replace(/\+/g, " plus ");
+  cleaned = cleaned.replace(/=/g, " equals ");
+  cleaned = cleaned.replace(/°/g, " degrees ");
+  cleaned = cleaned.replace(/#/g, " number ");
+
+  // Common abbreviation expansions
+  cleaned = cleaned.replace(/\be\.g\./gi, "for example");
+  cleaned = cleaned.replace(/\bi\.e\./gi, "that is");
+  cleaned = cleaned.replace(/\betc\./gi, "etcetera");
+  cleaned = cleaned.replace(/\bvs\./gi, "versus");
+  cleaned = cleaned.replace(/\bDr\./gi, "Doctor");
+  cleaned = cleaned.replace(/\bMr\./gi, "Mister");
+  cleaned = cleaned.replace(/\bMrs\./gi, "Missus");
+  cleaned = cleaned.replace(/\bMs\./gi, "Mizz");
+  cleaned = cleaned.replace(/\bProf\./gi, "Professor");
+  cleaned = cleaned.replace(/\bInc\./gi, "Incorporated");
+  cleaned = cleaned.replace(/\bLtd\./gi, "Limited");
+
+  // Filter out emojis, math operators, and foreign symbols that crash phonemizer
+  cleaned = cleaned.replace(/[^\w\s.,!?'":;\-]/g, " ");
+
+  // Collapse repeated punctuation and whitespace
+  cleaned = cleaned.replace(/\.{2,}/g, ".");
+  cleaned = cleaned.replace(/!{2,}/g, "!");
+  cleaned = cleaned.replace(/\?{2,}/g, "?");
+  cleaned = cleaned.replace(/,{2,}/g, ",");
+  cleaned = cleaned.replace(/-{2,}/g, "-");
+  cleaned = cleaned.replace(/\s+/g, " ").trim();
+
+  return cleaned;
 }
 
-// 2. Natural Sentence Chunking (Prevents awkward micro-pauses by merging short sentences)
+// 2. Cohesive Sentence Chunking
 function chunkText(text) {
-  const cleaned = sanitizeText(text);
+  const cleaned = sanitizeTextForTTS(text);
   if (!cleaned) return [];
 
-  // Step A: Parse sentence boundaries
   let rawSentences = [];
   if (typeof Intl !== "undefined" && Intl.Segmenter) {
     const segmenter = new Intl.Segmenter("en", { granularity: "sentence" });
     rawSentences = Array.from(segmenter.segment(cleaned)).map((s) => s.segment.trim());
   } else {
-    rawSentences = cleaned
-      .replace(/(?<=\b(?:Mr|Mrs|Ms|Dr|Prof|Inc|Ltd|vs|e\.g|i\.e))\./gi, "@DOT@")
-      .replace(/(?<=\d)\.(?=\d)/g, "@DOT@")
-      .match(/[^.!?\n]+[.!?\n]+|[^.!?\n]+$/g)
-      ?.map((s) => s.replace(/@DOT@/g, ".").trim()) || [cleaned];
+    rawSentences = cleaned.match(/[^.!?\n]+[.!?\n]+|[^.!?\n]+$/g)?.map((s) => s.trim()) || [cleaned];
   }
 
   rawSentences = rawSentences.filter((s) => /[a-zA-Z0-9]/.test(s));
 
-  // Step B: Break down any single sentence that exceeds 350 chars by clause punctuation
+  // Split any sentence exceeding 350 characters
   const MAX_CHUNK = 350;
   const splitSentences = [];
 
@@ -87,7 +124,7 @@ function chunkText(text) {
     }
   }
 
-  // Step C: Merge adjacent short sentences up to ~250-300 chars for smooth speech flow
+  // Merge short adjacent sentences up to ~280 characters for smooth speech flow
   const TARGET_CHUNK = 280;
   const mergedChunks = [];
   let buffer = "";
@@ -109,7 +146,7 @@ function chunkText(text) {
   return mergedChunks.filter((c) => /[a-zA-Z0-9]/.test(c));
 }
 
-// 3. Audio Scheduling
+// 3. Audio Scheduling & Merging
 function scheduleAudioBuffer(audioBuffer) {
   const ctx = getAudioContext();
   if (ctx.state === "suspended") {
@@ -234,13 +271,11 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
             speed: msg.speed || 1.0,
             model: msg.model || "nano",
             onProgress: (stage) => {
-              if (stage.includes("Downloading")) {
-                chrome.runtime.sendMessage({
-                  type: "TTS_STATUS",
-                  status: stage,
-                  state: "busy"
-                });
-              }
+              chrome.runtime.sendMessage({
+                type: "TTS_STATUS",
+                status: stage,
+                state: "busy"
+              });
             }
           });
 
@@ -278,23 +313,5 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       reader.readAsDataURL(mergedBlob);
       return true;
     }
-  } else if (msg.type === "FLUSH_ENGINE_CACHE") {
-    (async () => {
-      try {
-        stopPlayback();
-        if (audioCtx && audioCtx.state !== "closed") {
-          await audioCtx.close();
-          audioCtx = null;
-        }
-        if ("caches" in window) {
-          const cacheKeys = await caches.keys();
-          await Promise.all(cacheKeys.map((k) => caches.delete(k)));
-        }
-        sendResponse({ success: true });
-      } catch (err) {
-        sendResponse({ success: false, error: err.message });
-      }
-    })();
-    return true;
   }
 });
