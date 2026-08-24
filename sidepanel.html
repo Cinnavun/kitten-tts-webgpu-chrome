@@ -27,8 +27,6 @@
       --progress-track: #e2e8f0;
       --badge-bg: #e0e7ff;
       --badge-text: #3730a3;
-      --reader-bg: #eef2ff;
-      --reader-border: #c7d2fe;
     }
 
     [data-theme="dark"] {
@@ -53,8 +51,6 @@
       --progress-track: #27272a;
       --badge-bg: #312e81;
       --badge-text: #c7d2fe;
-      --reader-bg: #1e1b4b;
-      --reader-border: #3730a3;
     }
 
     * { box-sizing: border-box; margin: 0; padding: 0; }
@@ -90,37 +86,6 @@
       border: 1px solid var(--card-border); background: var(--card-bg); color: var(--text-muted);
     }
 
-    /* Article Reader Toolbar */
-    .reader-banner {
-      background: var(--reader-bg);
-      border: 1px solid var(--reader-border);
-      border-radius: 10px;
-      padding: 8px 12px;
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      margin-bottom: 12px;
-    }
-    .reader-info {
-      font-size: 11px;
-      font-weight: 600;
-      color: var(--accent);
-      display: flex;
-      align-items: center;
-      gap: 6px;
-    }
-    .reader-btn {
-      background: var(--accent);
-      color: white;
-      border: none;
-      border-radius: 6px;
-      padding: 4px 8px;
-      font-size: 11px;
-      font-weight: 600;
-      cursor: pointer;
-    }
-    .reader-btn:hover { opacity: 0.9; }
-
     .card {
       background: var(--card-bg);
       border: 1px solid var(--card-border);
@@ -144,7 +109,7 @@
       font-size: 12px; outline: none; padding: 7px 9px;
     }
 
-    textarea { height: 95px; resize: vertical; line-height: 1.4; }
+    textarea { height: 110px; resize: vertical; line-height: 1.4; }
 
     .textarea-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px; }
     .clear-btn { background: none; border: none; color: var(--text-sub); font-size: 11px; cursor: pointer; }
@@ -176,11 +141,8 @@
     .status-header { display: flex; align-items: center; gap: 6px; font-size: 12px; font-weight: 600; }
     .status-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--text-sub); }
     .status-dot.busy { background: #6366f1; box-shadow: 0 0 8px #6366f1; }
-    .progress-bar-container { width: 100%; height: 4px; background: var(--progress-track); border-radius: 4px; margin: 6px 0; overflow: hidden; display: none; }
-    .progress-bar-fill { height: 100%; width: 0%; background: var(--accent-gradient); transition: width 0.25s ease; }
-    .snippet-preview { font-size: 11px; color: var(--text-muted); font-style: italic; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .status-dot.playing { background: #10b981; box-shadow: 0 0 8px #10b981; }
 
-    /* Attributions Footer */
     details.attributions {
       font-size: 11px;
       color: var(--text-muted);
@@ -193,9 +155,6 @@
       font-weight: 600;
       color: var(--text-sub);
       list-style: none;
-      display: flex;
-      align-items: center;
-      gap: 4px;
     }
     details summary:hover { color: var(--text-muted); }
     .attr-content {
@@ -210,10 +169,6 @@
     .attr-item:last-child { margin-bottom: 0; }
     .attr-item a { color: var(--accent); text-decoration: none; }
     .attr-item a:hover { text-decoration: underline; }
-    .kbd-chip {
-      font-family: monospace; font-size: 10px; background: var(--progress-track);
-      padding: 1px 4px; border-radius: 4px; color: var(--text-main);
-    }
   </style>
 </head>
 <body>
@@ -232,17 +187,7 @@
     </select>
   </div>
 
-  <!-- Smart Reader / Article Extraction Banner -->
-  <div class="reader-banner">
-    <div class="reader-info">
-      <span>📖</span>
-      <span>Reader View</span>
-      <span class="kbd-chip">Alt+Shift+A</span>
-    </div>
-    <button id="extractArticleBtn" class="reader-btn">Extract Page Article</button>
-  </div>
-
-  <!-- Settings -->
+  <!-- Settings Card -->
   <div class="card">
     <div class="control-row">
       <div>
@@ -273,7 +218,6 @@
       </div>
     </div>
 
-    <!-- Speed Slider -->
     <div>
       <label for="speedInput">
         <span>Speed</span>
@@ -291,9 +235,8 @@
       <label for="textInput" style="margin-bottom:0;">Text to Read</label>
       <button id="clearBtn" class="clear-btn">Clear</button>
     </div>
-    <textarea id="textInput" placeholder="Highlight text or click 'Extract Page Article'..."></textarea>
+    <textarea id="textInput" placeholder="Highlight text on any page or click the toolbar icon..."></textarea>
 
-    <!-- Buttons -->
     <div class="button-group">
       <button id="playBtn" class="btn-primary">▶ Play Audio</button>
       <button id="stopBtn" class="btn-danger" disabled>⏹ Stop</button>
@@ -301,19 +244,15 @@
     <button id="downloadBtn" class="btn-success">⬇ Download Audio (.wav)</button>
   </div>
 
-  <!-- Live Status Card -->
+  <!-- Status -->
   <div class="status-card">
     <div class="status-header">
       <div id="statusDot" class="status-dot"></div>
       <span id="statusText">Ready</span>
     </div>
-    <div id="progressContainer" class="progress-bar-container">
-      <div id="progressFill" class="progress-bar-fill"></div>
-    </div>
-    <div id="snippetText" class="snippet-preview"></div>
   </div>
 
-  <!-- Credits & Attributions Section -->
+  <!-- Attributions Section -->
   <details class="attributions">
     <summary>⚖️ Credits & Attributions</summary>
     <div class="attr-content">
@@ -323,14 +262,14 @@
       </div>
       <div class="attr-item">
         <strong>Kitten TTS</strong> by 
-        <a href="https://huggingface.co/KittenML" target="_blank" rel="noopener noreferrer">KittenML</a> — original model & architecture (Apache 2.0)
+        <a href="https://huggingface.co/KittenML" target="_blank" rel="noopener noreferrer">KittenML</a> — original model and architecture (models on HuggingFace, Apache 2.0)
       </div>
       <div class="attr-item">
-        <strong>espeak-ng</strong> pronunciation dictionary & letter-to-sound rules (GPL-3.0)
+        <strong>espeak-ng</strong> pronunciation dictionary and letter-to-sound rules (GPL-3.0, bundled as data files)
       </div>
       <div class="attr-item">
         <strong>phonemizer</strong> by 
-        <a href="https://github.com/xenova/transformers.js" target="_blank" rel="noopener noreferrer">Xenova</a> (espeak-ng WASM backend)
+        <a href="https://github.com/xenova/transformers.js" target="_blank" rel="noopener noreferrer">Xenova</a> (espeak-ng WASM, used as primary backend on Chrome/Firefox; pure JS fallback on Safari)
       </div>
     </div>
   </details>

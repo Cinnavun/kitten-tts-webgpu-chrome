@@ -1,1 +1,3 @@
 .\node_modules\*
+dist/offscreen.js
+dist/sidepanel.js

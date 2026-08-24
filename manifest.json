@@ -37,7 +37,7 @@
         "default": "Alt+Shift+A",
         "mac": "Alt+Shift+A"
       },
-      "description": "Extract and Read Page Article"
+      "description": "Read Active Page Article"
     }
   },
   "background": {
