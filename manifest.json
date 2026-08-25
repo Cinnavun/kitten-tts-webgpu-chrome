@@ -24,10 +24,7 @@
     "activeTab",
     "scripting"
   ],
-  "optional_host_permissions": [
-    "http://*/*",
-    "https://*/*"
-  ],
+  "optional_host_permissions": ["http://*/*", "https://*/*"],
   "commands": {
     "_execute_action": {
       "suggested_key": {
@@ -41,13 +38,18 @@
         "default": "Alt+Shift+A",
         "mac": "Alt+Shift+A"
       },
-      "description": "Read Active Page Article"
+      "web_accessible_resources": [
+        {
+          "resources": ["models/*"],
+          "matches": ["<all_urls>"]
+        }
+      ],
+      "background": {
+        "service_worker": "background.js"
+      },
+      "side_panel": {
+        "default_path": "sidepanel.html"
+      }
     }
-  },
-  "background": {
-    "service_worker": "background.js"
-  },
-  "side_panel": {
-    "default_path": "sidepanel.html"
   }
 }

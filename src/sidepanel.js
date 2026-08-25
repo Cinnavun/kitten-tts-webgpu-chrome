@@ -16,16 +16,6 @@ const progressContainer = document.getElementById("progressContainer");
 const progressFill = document.getElementById("progressFill");
 const resetGpuBtn = document.getElementById("resetGpuBtn");
 
-// Silently warm up the WebGPU engine and model cache as soon as the side panel opens
-(async () => {
-  await chrome.runtime.sendMessage({ type: "ENSURE_OFFSCREEN" });
-  chrome.runtime.sendMessage({
-    target: "offscreen",
-    type: "PREWARM_MODEL",
-    model: modelSelect?.value || "nano",
-  });
-})();
-
 // 1. Theme Management
 function applyTheme(theme) {
   if (theme === "auto") {
@@ -50,12 +40,6 @@ themeSelect?.addEventListener("change", (e) => {
   applyTheme(e.target.value);
 });
 
-window
-  .matchMedia("(prefers-color-scheme: dark)")
-  .addEventListener("change", () => {
-    if (themeSelect?.value === "auto") applyTheme("auto");
-  });
-
 // 2. Speed Slider & Clear Input
 speedInput?.addEventListener("input", () => {
   if (speedValue) speedValue.textContent = `${speedInput.value}x`;
@@ -68,16 +52,54 @@ clearBtn?.addEventListener("click", () => {
   }
 });
 
+// 3. Silent Pre-Warm on Panel Load
+(async () => {
+  await chrome.runtime.sendMessage({ type: "ENSURE_OFFSCREEN" });
+  chrome.runtime.sendMessage({
+    target: "offscreen",
+    type: "PREWARM_MODEL",
+    model: modelSelect?.value || "nano",
+  });
+})();
+
+// Helper to start playback
+async function startPlayback(textToPlay) {
+  const text = (textToPlay || textInput?.value || "").trim();
+  if (!text) {
+    if (statusText)
+      statusText.textContent = "Please enter text or extract an article.";
+    return;
+  }
+
+  await chrome.runtime.sendMessage({ type: "ENSURE_OFFSCREEN" });
+  chrome.runtime.sendMessage({
+    target: "offscreen",
+    type: "PLAY_TEXT",
+    text,
+    voice: voiceSelect?.value || "Jasper",
+    speed: parseFloat(speedInput?.value || "1.0"),
+    model: modelSelect?.value || "nano",
+  });
+
+  if (playBtn) playBtn.disabled = true;
+  if (stopBtn) stopBtn.disabled = false;
+  if (downloadBtn) downloadBtn.style.display = "none";
+  if (progressContainer) progressContainer.style.display = "block";
+  if (progressFill) progressFill.style.width = "0%";
+  if (statusDot) statusDot.className = "status-dot busy";
+  if (statusText) statusText.textContent = "Synthesizing with WebGPU...";
+}
+
+// 4. Scan & Auto-Play Article Action
 extractArticleBtn?.addEventListener("click", async () => {
   try {
     if (statusText)
-      statusText.textContent = "Scanning active tab for article...";
-    if (statusDot) statusDot.className = "status-dot busy";
+      statusText.textContent = "Checking page access permissions...";
 
-    // 1. Permission check (if using optional permissions)
     const hasPermission = await chrome.permissions.contains({
       origins: ["http://*/*", "https://*/*"],
     });
+
     if (!hasPermission) {
       const granted = await chrome.permissions.request({
         origins: ["http://*/*", "https://*/*"],
@@ -85,12 +107,14 @@ extractArticleBtn?.addEventListener("click", async () => {
       if (!granted) {
         if (statusText)
           statusText.textContent = "Permission denied. Cannot scan page.";
-        if (statusDot) statusDot.className = "status-dot";
         return;
       }
     }
 
-    // 2. Extract article
+    if (statusText)
+      statusText.textContent = "Scanning active tab for article...";
+    if (statusDot) statusDot.className = "status-dot busy";
+
     chrome.runtime.sendMessage(
       { type: "EXTRACT_CURRENT_TAB_ARTICLE" },
       async (response) => {
@@ -106,26 +130,11 @@ extractArticleBtn?.addEventListener("click", async () => {
             response.article.title ?
               response.article.title.slice(0, 25) + "..."
             : "Article";
-
-          // 3. Immediately start synthesis & playback
           if (statusText)
-            statusText.textContent = `Article loaded: "${titleSnippet}". Synthesizing...`;
+            statusText.textContent = `Loaded "${titleSnippet}". Reading...`;
 
-          await chrome.runtime.sendMessage({ type: "ENSURE_OFFSCREEN" });
-          chrome.runtime.sendMessage({
-            target: "offscreen",
-            type: "PLAY_TEXT",
-            text: response.article.text,
-            voice: voiceSelect?.value || "Jasper",
-            speed: parseFloat(speedInput?.value || "1.0"),
-            model: modelSelect?.value || "nano",
-          });
-
-          if (playBtn) playBtn.disabled = true;
-          if (stopBtn) stopBtn.disabled = false;
-          if (downloadBtn) downloadBtn.style.display = "none";
-          if (progressContainer) progressContainer.style.display = "block";
-          if (progressFill) progressFill.style.width = "0%";
+          // Auto-play immediately
+          await startPlayback(response.article.text);
         } else {
           if (statusText)
             statusText.textContent =
@@ -156,33 +165,8 @@ chrome.storage.onChanged.addListener((changes, area) => {
   }
 });
 
-// 4. Play & Stop Actions
-playBtn?.addEventListener("click", async () => {
-  const text = textInput?.value.trim();
-  if (!text) {
-    if (statusText)
-      statusText.textContent = "Please enter text or extract an article.";
-    return;
-  }
-
-  await chrome.runtime.sendMessage({ type: "ENSURE_OFFSCREEN" });
-  chrome.runtime.sendMessage({
-    target: "offscreen",
-    type: "PLAY_TEXT",
-    text,
-    voice: voiceSelect?.value || "Jasper",
-    speed: parseFloat(speedInput?.value || "1.0"),
-    model: modelSelect?.value || "nano",
-  });
-
-  if (playBtn) playBtn.disabled = true;
-  if (stopBtn) stopBtn.disabled = false;
-  if (downloadBtn) downloadBtn.style.display = "none";
-  if (progressContainer) progressContainer.style.display = "block";
-  if (progressFill) progressFill.style.width = "0%";
-  if (statusDot) statusDot.className = "status-dot busy";
-  if (statusText) statusText.textContent = "Synthesizing with WebGPU...";
-});
+// 5. Play & Stop Listeners
+playBtn?.addEventListener("click", () => startPlayback());
 
 stopBtn?.addEventListener("click", () => {
   chrome.runtime.sendMessage({ target: "offscreen", type: "STOP_AUDIO" });
@@ -205,7 +189,7 @@ downloadBtn?.addEventListener("click", () => {
   );
 });
 
-function resetControls(statusMsg, isError = false) {
+function resetControls(statusMsg) {
   if (playBtn) playBtn.disabled = false;
   if (stopBtn) stopBtn.disabled = true;
   if (progressContainer) progressContainer.style.display = "none";
@@ -214,7 +198,7 @@ function resetControls(statusMsg, isError = false) {
   if (statusText) statusText.textContent = statusMsg;
 }
 
-// 5. Progress Listener
+// 6. Progress Listener
 chrome.runtime.onMessage.addListener((msg) => {
   if (msg.type === "TTS_PROGRESS") {
     if (statusDot) statusDot.className = "status-dot busy";
@@ -229,7 +213,7 @@ chrome.runtime.onMessage.addListener((msg) => {
     } else if (msg.state === "stopped") {
       resetControls("Stopped.");
     } else if (msg.state === "error") {
-      resetControls(msg.status || "Error occurred", true);
+      resetControls(msg.status || "Error occurred");
     } else if (msg.state === "playing") {
       if (statusText) statusText.textContent = "Playing audio...";
       if (statusDot) statusDot.className = "status-dot playing";
@@ -241,12 +225,11 @@ chrome.runtime.onMessage.addListener((msg) => {
   }
 });
 
-// 6. Reset Engine Action
+// 7. Reset Engine Action
 resetGpuBtn?.addEventListener("click", () => {
-  if (statusText)
-    statusText.textContent = "Resetting GPU process and clearing cache...";
+  if (statusText) statusText.textContent = "Resetting GPU process...";
   if (statusDot) statusDot.className = "status-dot busy";
   chrome.runtime.sendMessage({ type: "RESET_GPU_OFFSCREEN" }, (res) => {
-    resetControls(res?.message || "WebGPU engine reset.");
+    resetControls(res?.message || "Engine reset.");
   });
 });
