@@ -22,7 +22,10 @@ function sanitizeTextForTTS(text) {
 
   // Replace URLs and emails
   cleaned = cleaned.replace(/https?:\/\/\S+/gi, " link ");
-  cleaned = cleaned.replace(/\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}\b/g, " email ");
+  cleaned = cleaned.replace(
+    /\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}\b/g,
+    " email ",
+  );
 
   // Strip HTML tags and markdown symbols
   cleaned = cleaned.replace(/<[^>]*>/g, " ");
@@ -34,9 +37,15 @@ function sanitizeTextForTTS(text) {
   cleaned = cleaned.replace(/[—–―−]/g, ", ");
 
   // Currency conversions
-  cleaned = cleaned.replace(/\$(\d+)(?:\.(\d{2}))?/g, (m, d, c) => (c ? `${d} dollars and ${c} cents` : `${d} dollars`));
-  cleaned = cleaned.replace(/£(\d+)(?:\.(\d{2}))?/g, (m, d, c) => (c ? `${d} pounds and ${c} cents` : `${d} pounds`));
-  cleaned = cleaned.replace(/€(\d+)(?:\.(\d{2}))?/g, (m, d, c) => (c ? `${d} euros and ${c} cents` : `${d} euros`));
+  cleaned = cleaned.replace(/\$(\d+)(?:\.(\d{2}))?/g, (m, d, c) =>
+    c ? `${d} dollars and ${c} cents` : `${d} dollars`,
+  );
+  cleaned = cleaned.replace(/£(\d+)(?:\.(\d{2}))?/g, (m, d, c) =>
+    c ? `${d} pounds and ${c} cents` : `${d} pounds`,
+  );
+  cleaned = cleaned.replace(/€(\d+)(?:\.(\d{2}))?/g, (m, d, c) =>
+    c ? `${d} euros and ${c} cents` : `${d} euros`,
+  );
   cleaned = cleaned.replace(/¥(\d+)/g, "$1 yen");
 
   // Symbols to spoken English
@@ -83,9 +92,13 @@ function chunkText(text) {
   let rawSentences = [];
   if (typeof Intl !== "undefined" && Intl.Segmenter) {
     const segmenter = new Intl.Segmenter("en", { granularity: "sentence" });
-    rawSentences = Array.from(segmenter.segment(cleaned)).map((s) => s.segment.trim());
+    rawSentences = Array.from(segmenter.segment(cleaned)).map((s) =>
+      s.segment.trim(),
+    );
   } else {
-    rawSentences = cleaned.match(/[^.!?\n]+[.!?\n]+|[^.!?\n]+$/g)?.map((s) => s.trim()) || [cleaned];
+    rawSentences = cleaned
+      .match(/[^.!?\n]+[.!?\n]+|[^.!?\n]+$/g)
+      ?.map((s) => s.trim()) || [cleaned];
   }
 
   rawSentences = rawSentences.filter((s) => /[a-zA-Z0-9]/.test(s));
@@ -166,7 +179,7 @@ function scheduleAudioBuffer(audioBuffer) {
       chrome.runtime.sendMessage({
         type: "TTS_STATUS",
         status: "Finished playing.",
-        state: "idle"
+        state: "idle",
       });
     }
   };
@@ -187,7 +200,7 @@ function stopPlayback() {
   chrome.runtime.sendMessage({
     type: "TTS_STATUS",
     status: "Stopped.",
-    state: "stopped"
+    state: "stopped",
   });
 }
 
@@ -196,7 +209,8 @@ function exportMergedWav(buffers, sampleRate = 24000) {
   const wavBuffer = new ArrayBuffer(44 + totalSamples * 2);
   const view = new DataView(wavBuffer);
   const writeString = (offset, str) => {
-    for (let i = 0; i < str.length; i++) view.setUint8(offset + i, str.charCodeAt(i));
+    for (let i = 0; i < str.length; i++)
+      view.setUint8(offset + i, str.charCodeAt(i));
   };
   writeString(0, "RIFF");
   view.setUint32(4, 36 + totalSamples * 2, true);
@@ -238,7 +252,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
           chrome.runtime.sendMessage({
             type: "TTS_STATUS",
             status: "No readable alphanumeric text found.",
-            state: "error"
+            state: "error",
           });
           isGenerating = false;
           return;
@@ -251,7 +265,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
         chrome.runtime.sendMessage({
           type: "TTS_STATUS",
           status: "Initializing WebGPU...",
-          state: "playing"
+          state: "playing",
         });
 
         for (let i = 0; i < chunks.length; i++) {
@@ -263,7 +277,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
             type: "TTS_PROGRESS",
             percent: percent,
             current: i + 1,
-            total: chunks.length
+            total: chunks.length,
           });
 
           const blob = await textToSpeech(chunk, {
@@ -274,9 +288,9 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
               chrome.runtime.sendMessage({
                 type: "TTS_STATUS",
                 status: stage,
-                state: "busy"
+                state: "busy",
               });
-            }
+            },
           });
 
           if (isCancelled || !blob) break;
@@ -297,7 +311,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
         chrome.runtime.sendMessage({
           type: "TTS_STATUS",
           status: `GPU Error: ${err.message}`,
-          state: "error"
+          state: "error",
         });
       }
     })();
@@ -313,5 +327,16 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       reader.readAsDataURL(mergedBlob);
       return true;
     }
+  } else if (msg.type === "PREWARM_MODEL") {
+    (async () => {
+      try {
+        // Warm the WebGPU device and cache the default model in the background
+        await textToSpeech("Ready.", {
+          model: msg.model || "nano",
+          voice: "Jasper",
+        });
+        console.log("[KittenTTS] Background pre-warm complete.");
+      } catch (_) {}
+    })();
   }
 });

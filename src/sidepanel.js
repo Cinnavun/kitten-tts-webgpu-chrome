@@ -16,11 +16,24 @@ const progressContainer = document.getElementById("progressContainer");
 const progressFill = document.getElementById("progressFill");
 const resetGpuBtn = document.getElementById("resetGpuBtn");
 
+// Silently warm up the WebGPU engine and model cache as soon as the side panel opens
+(async () => {
+  await chrome.runtime.sendMessage({ type: "ENSURE_OFFSCREEN" });
+  chrome.runtime.sendMessage({
+    target: "offscreen",
+    type: "PREWARM_MODEL",
+    model: modelSelect?.value || "nano",
+  });
+})();
+
 // 1. Theme Management
 function applyTheme(theme) {
   if (theme === "auto") {
     const isDark = window.matchMedia("(prefers-color-scheme: dark)").matches;
-    document.documentElement.setAttribute("data-theme", isDark ? "dark" : "light");
+    document.documentElement.setAttribute(
+      "data-theme",
+      isDark ? "dark" : "light",
+    );
   } else {
     document.documentElement.setAttribute("data-theme", theme);
   }
@@ -37,9 +50,11 @@ themeSelect?.addEventListener("change", (e) => {
   applyTheme(e.target.value);
 });
 
-window.matchMedia("(prefers-color-scheme: dark)").addEventListener("change", () => {
-  if (themeSelect?.value === "auto") applyTheme("auto");
-});
+window
+  .matchMedia("(prefers-color-scheme: dark)")
+  .addEventListener("change", () => {
+    if (themeSelect?.value === "auto") applyTheme("auto");
+  });
 
 // 2. Speed Slider & Clear Input
 speedInput?.addEventListener("input", () => {
@@ -53,43 +68,76 @@ clearBtn?.addEventListener("click", () => {
   }
 });
 
-// 3. Article Extractor
 extractArticleBtn?.addEventListener("click", async () => {
   try {
-    if (statusText) statusText.textContent = "Checking page access permissions...";
+    if (statusText)
+      statusText.textContent = "Scanning active tab for article...";
+    if (statusDot) statusDot.className = "status-dot busy";
 
+    // 1. Permission check (if using optional permissions)
     const hasPermission = await chrome.permissions.contains({
-      origins: ["http://*/*", "https://*/*"]
+      origins: ["http://*/*", "https://*/*"],
     });
-
     if (!hasPermission) {
       const granted = await chrome.permissions.request({
-        origins: ["http://*/*", "https://*/*"]
+        origins: ["http://*/*", "https://*/*"],
       });
       if (!granted) {
-        if (statusText) statusText.textContent = "Permission denied. Cannot scan page.";
+        if (statusText)
+          statusText.textContent = "Permission denied. Cannot scan page.";
+        if (statusDot) statusDot.className = "status-dot";
         return;
       }
     }
 
-    if (statusText) statusText.textContent = "Scanning active tab for article...";
+    // 2. Extract article
+    chrome.runtime.sendMessage(
+      { type: "EXTRACT_CURRENT_TAB_ARTICLE" },
+      async (response) => {
+        if (response?.error) {
+          if (statusText) statusText.textContent = `Error: ${response.error}`;
+          if (statusDot) statusDot.className = "status-dot";
+          return;
+        }
 
-    chrome.runtime.sendMessage({ type: "EXTRACT_CURRENT_TAB_ARTICLE" }, (response) => {
-      if (response?.error) {
-        if (statusText) statusText.textContent = `Error: ${response.error}`;
-        return;
-      }
-      if (response?.article?.text) {
-        if (textInput) textInput.value = response.article.text;
-        const titleSnippet = response.article.title ? response.article.title.slice(0, 30) + "..." : "Article";
-        if (statusText) statusText.textContent = `Loaded: "${titleSnippet}"`;
-      } else {
-        if (statusText) statusText.textContent = "Could not find a structured article on this page.";
-      }
-    });
+        if (response?.article?.text) {
+          if (textInput) textInput.value = response.article.text;
+          const titleSnippet =
+            response.article.title ?
+              response.article.title.slice(0, 25) + "..."
+            : "Article";
+
+          // 3. Immediately start synthesis & playback
+          if (statusText)
+            statusText.textContent = `Article loaded: "${titleSnippet}". Synthesizing...`;
+
+          await chrome.runtime.sendMessage({ type: "ENSURE_OFFSCREEN" });
+          chrome.runtime.sendMessage({
+            target: "offscreen",
+            type: "PLAY_TEXT",
+            text: response.article.text,
+            voice: voiceSelect?.value || "Jasper",
+            speed: parseFloat(speedInput?.value || "1.0"),
+            model: modelSelect?.value || "nano",
+          });
+
+          if (playBtn) playBtn.disabled = true;
+          if (stopBtn) stopBtn.disabled = false;
+          if (downloadBtn) downloadBtn.style.display = "none";
+          if (progressContainer) progressContainer.style.display = "block";
+          if (progressFill) progressFill.style.width = "0%";
+        } else {
+          if (statusText)
+            statusText.textContent =
+              "Could not find a structured article on this page.";
+          if (statusDot) statusDot.className = "status-dot";
+        }
+      },
+    );
   } catch (err) {
-    console.error("Permission / Extraction error:", err);
+    console.error("Extraction error:", err);
     if (statusText) statusText.textContent = `Error: ${err.message}`;
+    if (statusDot) statusDot.className = "status-dot";
   }
 });
 
@@ -112,7 +160,8 @@ chrome.storage.onChanged.addListener((changes, area) => {
 playBtn?.addEventListener("click", async () => {
   const text = textInput?.value.trim();
   if (!text) {
-    if (statusText) statusText.textContent = "Please enter text or extract an article.";
+    if (statusText)
+      statusText.textContent = "Please enter text or extract an article.";
     return;
   }
 
@@ -123,7 +172,7 @@ playBtn?.addEventListener("click", async () => {
     text,
     voice: voiceSelect?.value || "Jasper",
     speed: parseFloat(speedInput?.value || "1.0"),
-    model: modelSelect?.value || "nano"
+    model: modelSelect?.value || "nano",
   });
 
   if (playBtn) playBtn.disabled = true;
@@ -141,16 +190,19 @@ stopBtn?.addEventListener("click", () => {
 });
 
 downloadBtn?.addEventListener("click", () => {
-  chrome.runtime.sendMessage({ target: "offscreen", type: "GET_DOWNLOAD_BLOB" }, (res) => {
-    if (res?.dataUrl) {
-      const a = document.createElement("a");
-      a.href = res.dataUrl;
-      a.download = "kitten-tts-audio.wav";
-      document.body.appendChild(a);
-      a.click();
-      a.remove();
-    }
-  });
+  chrome.runtime.sendMessage(
+    { target: "offscreen", type: "GET_DOWNLOAD_BLOB" },
+    (res) => {
+      if (res?.dataUrl) {
+        const a = document.createElement("a");
+        a.href = res.dataUrl;
+        a.download = "kitten-tts-audio.wav";
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+      }
+    },
+  );
 });
 
 function resetControls(statusMsg, isError = false) {
@@ -168,7 +220,8 @@ chrome.runtime.onMessage.addListener((msg) => {
     if (statusDot) statusDot.className = "status-dot busy";
     if (progressContainer) progressContainer.style.display = "block";
     if (progressFill) progressFill.style.width = `${msg.percent}%`;
-    if (statusText) statusText.textContent = `Synthesizing audio... ${msg.percent}%`;
+    if (statusText)
+      statusText.textContent = `Synthesizing audio... ${msg.percent}%`;
     if (stopBtn) stopBtn.disabled = false;
   } else if (msg.type === "TTS_STATUS") {
     if (msg.state === "idle") {
@@ -190,7 +243,8 @@ chrome.runtime.onMessage.addListener((msg) => {
 
 // 6. Reset Engine Action
 resetGpuBtn?.addEventListener("click", () => {
-  if (statusText) statusText.textContent = "Resetting GPU process and clearing cache...";
+  if (statusText)
+    statusText.textContent = "Resetting GPU process and clearing cache...";
   if (statusDot) statusDot.className = "status-dot busy";
   chrome.runtime.sendMessage({ type: "RESET_GPU_OFFSCREEN" }, (res) => {
     resetControls(res?.message || "WebGPU engine reset.");
