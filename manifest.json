@@ -2,6 +2,7 @@
   "manifest_version": 3,
   "name": "Kitten TTS WebGPU",
   "version": "1.1",
+  "description": "On-device Text-to-Speech using KittenTTS WebGPU and Mozilla Readability.",
   "icons": {
     "16": "icons/icon16.png",
     "32": "icons/icon32.png",
@@ -24,7 +25,20 @@
     "activeTab",
     "scripting"
   ],
-  "optional_host_permissions": ["http://*/*", "https://*/*"],
+  "optional_host_permissions": [
+    "http://*/*",
+    "https://*/*"
+  ],
+  "web_accessible_resources": [
+    {
+      "resources": [
+        "models/*"
+      ],
+      "matches": [
+        "<all_urls>"
+      ]
+    }
+  ],
   "commands": {
     "_execute_action": {
       "suggested_key": {
@@ -38,18 +52,13 @@
         "default": "Alt+Shift+A",
         "mac": "Alt+Shift+A"
       },
-      "web_accessible_resources": [
-        {
-          "resources": ["models/*"],
-          "matches": ["<all_urls>"]
-        }
-      ],
-      "background": {
-        "service_worker": "background.js"
-      },
-      "side_panel": {
-        "default_path": "sidepanel.html"
-      }
+      "description": "Read Active Page Article"
     }
+  },
+  "background": {
+    "service_worker": "background.js"
+  },
+  "side_panel": {
+    "default_path": "sidepanel.html"
   }
 }

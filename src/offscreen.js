@@ -15,8 +15,8 @@ function getAudioContext() {
   return audioCtx;
 }
 
-// Clean text for phonemizer
 function sanitizeText(text) {
+  if (!text) return "";
   return text
     .replace(/https?:\/\/\S+/gi, " link ")
     .replace(/\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}\b/g, " email ")
@@ -25,9 +25,7 @@ function sanitizeText(text) {
     .replace(/[“”]/g, '"')
     .replace(/[‘’]/g, "'")
     .replace(/[—–]/g, ", ")
-    .replace(/\$(\d+)(?:\.(\d{2}))?/g, (m, d, c) =>
-      c ? `${d} dollars and ${c} cents` : `${d} dollars`,
-    )
+    .replace(/\$(\d+)(?:\.(\d{2}))?/g, (m, d, c) => (c ? `${d} dollars and ${c} cents` : `${d} dollars`))
     .replace(/%/g, " percent ")
     .replace(/&/g, " and ")
     .replace(/@/g, " at ")
@@ -39,36 +37,29 @@ function sanitizeText(text) {
     .replace(/\bDr\./gi, "Doctor")
     .replace(/\bMr\./gi, "Mister")
     .replace(/\bMrs\./gi, "Missus")
-    .replace(/\bMs\./gi, "Mizz")
     .replace(/[^\w\s.,!?'":;\-]/g, " ")
     .replace(/\.{2,}/g, ".")
     .replace(/\s+/g, " ")
     .trim();
 }
 
-// Chunk text into natural sentence groups
 function chunkText(text) {
   const cleaned = sanitizeText(text);
   if (!cleaned) return [];
 
-  let sentences = [];
+  let rawSentences = [];
   if (typeof Intl !== "undefined" && Intl.Segmenter) {
     const segmenter = new Intl.Segmenter("en", { granularity: "sentence" });
-    sentences = Array.from(segmenter.segment(cleaned)).map((s) =>
-      s.segment.trim(),
-    );
+    rawSentences = Array.from(segmenter.segment(cleaned)).map((s) => s.segment.trim());
   } else {
-    sentences = cleaned
-      .match(/[^.!?\n]+[.!?\n]+|[^.!?\n]+$/g)
-      ?.map((s) => s.trim()) || [cleaned];
+    rawSentences = cleaned.match(/[^.!?\n]+[.!?\n]+|[^.!?\n]+$/g)?.map((s) => s.trim()) || [cleaned];
   }
 
-  // Merge short sentences to ~280 chars to avoid awkward pauses
   const TARGET_CHUNK = 280;
   const merged = [];
   let buffer = "";
 
-  for (const s of sentences) {
+  for (const s of rawSentences) {
     if (!buffer) {
       buffer = s;
     } else if ((buffer + " " + s).length <= TARGET_CHUNK) {
@@ -98,11 +89,7 @@ function scheduleAudioBuffer(audioBuffer) {
   source.onended = () => {
     activeSources = activeSources.filter((s) => s !== source);
     if (activeSources.length === 0 && !isGenerating && !isCancelled) {
-      chrome.runtime.sendMessage({
-        type: "TTS_STATUS",
-        status: "Finished playing.",
-        state: "idle",
-      });
+      chrome.runtime.sendMessage({ type: "TTS_STATUS", status: "Finished playing.", state: "idle" });
     }
   };
 }
@@ -112,18 +99,11 @@ function stopPlayback() {
   isGenerating = false;
   nextStartTime = 0;
   for (const s of activeSources) {
-    try {
-      s.stop();
-      s.disconnect();
-    } catch (_) {}
+    try { s.stop(); s.disconnect(); } catch (_) {}
   }
   activeSources = [];
   collectedAudioBuffers = [];
-  chrome.runtime.sendMessage({
-    type: "TTS_STATUS",
-    status: "Stopped.",
-    state: "stopped",
-  });
+  chrome.runtime.sendMessage({ type: "TTS_STATUS", status: "Stopped.", state: "stopped" });
 }
 
 function exportMergedWav(buffers, sampleRate = 24000) {
@@ -131,8 +111,7 @@ function exportMergedWav(buffers, sampleRate = 24000) {
   const wavBuffer = new ArrayBuffer(44 + totalSamples * 2);
   const view = new DataView(wavBuffer);
   const writeString = (offset, str) => {
-    for (let i = 0; i < str.length; i++)
-      view.setUint8(offset + i, str.charCodeAt(i));
+    for (let i = 0; i < str.length; i++) view.setUint8(offset + i, str.charCodeAt(i));
   };
   writeString(0, "RIFF");
   view.setUint32(4, 36 + totalSamples * 2, true);
@@ -161,12 +140,7 @@ function exportMergedWav(buffers, sampleRate = 24000) {
 chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   if (msg.target !== "offscreen") return;
 
-  if (msg.type === "PREWARM_MODEL") {
-    // Silently pre-downloads and caches model weights
-    textToSpeech("Ready.", { model: msg.model || "nano", voice: "Jasper" })
-      .then(() => console.log("[KittenTTS] Model pre-cached successfully."))
-      .catch(() => {});
-  } else if (msg.type === "PLAY_TEXT") {
+  if (msg.type === "PLAY_TEXT") {
     (async () => {
       try {
         stopPlayback();
@@ -175,11 +149,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
 
         const chunks = chunkText(msg.text);
         if (chunks.length === 0) {
-          chrome.runtime.sendMessage({
-            type: "TTS_STATUS",
-            status: "No readable text found.",
-            state: "error",
-          });
+          chrome.runtime.sendMessage({ type: "TTS_STATUS", status: "No readable text found.", state: "error" });
           isGenerating = false;
           return;
         }
@@ -188,11 +158,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
         nextStartTime = ctx.currentTime;
         collectedAudioBuffers = [];
 
-        chrome.runtime.sendMessage({
-          type: "TTS_STATUS",
-          status: "Starting synthesis...",
-          state: "playing",
-        });
+        chrome.runtime.sendMessage({ type: "TTS_STATUS", status: "Starting synthesis...", state: "playing" });
 
         for (let i = 0; i < chunks.length; i++) {
           if (isCancelled) break;
@@ -206,14 +172,8 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
             speed: msg.speed || 1.0,
             model: msg.model || "nano",
             onProgress: (stage) => {
-              if (stage.includes("Downloading")) {
-                chrome.runtime.sendMessage({
-                  type: "TTS_STATUS",
-                  status: stage,
-                  state: "busy",
-                });
-              }
-            },
+              chrome.runtime.sendMessage({ type: "TTS_STATUS", status: stage, state: "busy" });
+            }
           });
 
           if (isCancelled || !blob) break;
@@ -225,16 +185,11 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
         }
 
         isGenerating = false;
-        if (!isCancelled)
-          chrome.runtime.sendMessage({ type: "TTS_AUDIO_READY" });
+        if (!isCancelled) chrome.runtime.sendMessage({ type: "TTS_AUDIO_READY" });
       } catch (err) {
         console.error("Offscreen Engine Error:", err);
         isGenerating = false;
-        chrome.runtime.sendMessage({
-          type: "TTS_STATUS",
-          status: `Error: ${err.message}`,
-          state: "error",
-        });
+        chrome.runtime.sendMessage({ type: "TTS_STATUS", status: `Error: ${err.message}`, state: "error" });
       }
     })();
   } else if (msg.type === "STOP_AUDIO") {
