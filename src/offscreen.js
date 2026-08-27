@@ -15,7 +15,7 @@ function getAudioContext() {
   return audioCtx;
 }
 
-// Group natural sentences into chunks under ~400 chars (as recommended by KittenTTS)
+// Split into single-sentence chunks under ~180 chars to stay well below the 2s Windows TDR threshold
 function chunkText(text) {
   if (!text || typeof text !== "string") return [];
 
@@ -32,26 +32,51 @@ function chunkText(text) {
     sentences = trimmed.match(/[^.!?\n]+[.!?\n]+|[^.!?\n]+$/g)?.map((s) => s.trim()) || [trimmed];
   }
 
-  const MAX_CHUNK = 350;
-  const chunks = [];
-  let currentChunk = "";
+  const MAX_CHUNK_LENGTH = 180;
+  const finalChunks = [];
 
   for (const sentence of sentences) {
-    if (!currentChunk) {
-      currentChunk = sentence;
-    } else if ((currentChunk + " " + sentence).length <= MAX_CHUNK) {
-      currentChunk += " " + sentence;
+    if (sentence.length <= MAX_CHUNK_LENGTH) {
+      finalChunks.push(sentence);
     } else {
-      chunks.push(currentChunk);
-      currentChunk = sentence;
+      // Split overly long sentences on punctuation/clauses
+      const clauses = sentence.split(/(?<=[,;:—–\n])\s+/);
+      let current = "";
+      for (const clause of clauses) {
+        if (clause.length > MAX_CHUNK_LENGTH) {
+          const words = clause.split(/\s+/);
+          let sub = "";
+          for (const w of words) {
+            if ((sub + " " + w).trim().length > MAX_CHUNK_LENGTH) {
+              if (sub) finalChunks.push(sub.trim());
+              sub = w;
+            } else {
+              sub = sub ? `${sub} ${w}` : w;
+            }
+          }
+          if (sub) finalChunks.push(sub.trim());
+        } else if ((current + " " + clause).trim().length > MAX_CHUNK_LENGTH) {
+          if (current) finalChunks.push(current.trim());
+          current = clause;
+        } else {
+          current = current ? `${current} ${clause}` : clause;
+        }
+      }
+      if (current) finalChunks.push(current.trim());
     }
   }
 
-  if (currentChunk) {
-    chunks.push(currentChunk);
-  }
+  return finalChunks.filter((c) => c && /[a-zA-Z0-9]/.test(c));
+}
 
-  return chunks;
+// Timeout wrapper so the UI never stalls indefinitely if a shader crashes
+function synthesizeWithTimeout(text, options, timeoutMs = 12000) {
+  return Promise.race([
+    textToSpeech(text, options),
+    new Promise((_, reject) =>
+      setTimeout(() => reject(new Error("GPU generation timed out or device hung.")), timeoutMs)
+    )
+  ]);
 }
 
 function scheduleAudioBuffer(audioBuffer) {
@@ -181,7 +206,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
             total: chunks.length
           });
 
-          const blob = await textToSpeech(chunk, {
+          const blob = await synthesizeWithTimeout(chunk, {
             voice: msg.voice || "Jasper",
             speed: msg.speed || 1.0,
             model: msg.model || "nano",
@@ -202,6 +227,9 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
           const audioBuffer = await ctx.decodeAudioData(arrayBuf);
           collectedAudioBuffers.push(audioBuffer);
           scheduleAudioBuffer(audioBuffer);
+
+          // Yield to give D3D12 command queue time to flush and avoid TDR reset
+          await new Promise((r) => setTimeout(r, 60));
         }
 
         isGenerating = false;

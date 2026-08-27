@@ -3,3 +3,6 @@ dist/*
 dist/*js
 dist/*
 dist/sidepanel.js
+gitignore/kittenttswebgpuscripts.txt
+workflow.bat
+gitignore/combined_code.txt
