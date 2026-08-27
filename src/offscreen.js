@@ -15,72 +15,54 @@ function getAudioContext() {
   return audioCtx;
 }
 
-function sanitizeText(text) {
-  if (!text) return "";
-  return text
-    .replace(/https?:\/\/\S+/gi, " link ")
-    .replace(/\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}\b/g, " email ")
-    .replace(/<[^>]*>/g, " ")
-    .replace(/[*_#`~|\[\]\(\)\{\}\<\>\\\/^]/g, " ")
-    .replace(/[“”]/g, '"')
-    .replace(/[‘’]/g, "'")
-    .replace(/[—–]/g, ", ")
-    .replace(/\$(\d+)(?:\.(\d{2}))?/g, (m, d, c) => (c ? `${d} dollars and ${c} cents` : `${d} dollars`))
-    .replace(/%/g, " percent ")
-    .replace(/&/g, " and ")
-    .replace(/@/g, " at ")
-    .replace(/\+/g, " plus ")
-    .replace(/=/g, " equals ")
-    .replace(/\be\.g\./gi, "for example")
-    .replace(/\bi\.e\./gi, "that is")
-    .replace(/\betc\./gi, "etcetera")
-    .replace(/\bDr\./gi, "Doctor")
-    .replace(/\bMr\./gi, "Mister")
-    .replace(/\bMrs\./gi, "Missus")
-    .replace(/[^\w\s.,!?'":;\-]/g, " ")
-    .replace(/\.{2,}/g, ".")
-    .replace(/\s+/g, " ")
-    .trim();
-}
-
+// Group natural sentences into chunks under ~400 chars (as recommended by KittenTTS)
 function chunkText(text) {
-  const cleaned = sanitizeText(text);
-  if (!cleaned) return [];
+  if (!text || typeof text !== "string") return [];
 
-  let rawSentences = [];
+  const trimmed = text.trim();
+  if (!trimmed) return [];
+
+  let sentences = [];
   if (typeof Intl !== "undefined" && Intl.Segmenter) {
     const segmenter = new Intl.Segmenter("en", { granularity: "sentence" });
-    rawSentences = Array.from(segmenter.segment(cleaned)).map((s) => s.segment.trim());
+    sentences = Array.from(segmenter.segment(trimmed))
+      .map((s) => s.segment.trim())
+      .filter((s) => s.length > 0);
   } else {
-    rawSentences = cleaned.match(/[^.!?\n]+[.!?\n]+|[^.!?\n]+$/g)?.map((s) => s.trim()) || [cleaned];
+    sentences = trimmed.match(/[^.!?\n]+[.!?\n]+|[^.!?\n]+$/g)?.map((s) => s.trim()) || [trimmed];
   }
 
-  const TARGET_CHUNK = 280;
-  const merged = [];
-  let buffer = "";
+  const MAX_CHUNK = 350;
+  const chunks = [];
+  let currentChunk = "";
 
-  for (const s of rawSentences) {
-    if (!buffer) {
-      buffer = s;
-    } else if ((buffer + " " + s).length <= TARGET_CHUNK) {
-      buffer = `${buffer} ${s}`;
+  for (const sentence of sentences) {
+    if (!currentChunk) {
+      currentChunk = sentence;
+    } else if ((currentChunk + " " + sentence).length <= MAX_CHUNK) {
+      currentChunk += " " + sentence;
     } else {
-      merged.push(buffer);
-      buffer = s;
+      chunks.push(currentChunk);
+      currentChunk = sentence;
     }
   }
-  if (buffer) merged.push(buffer);
 
-  return merged.filter((c) => /[a-zA-Z0-9]/.test(c));
+  if (currentChunk) {
+    chunks.push(currentChunk);
+  }
+
+  return chunks;
 }
 
 function scheduleAudioBuffer(audioBuffer) {
   const ctx = getAudioContext();
-  if (ctx.state === "suspended") ctx.resume();
-
+  if (ctx.state === "suspended") {
+    ctx.resume();
+  }
   const source = ctx.createBufferSource();
   source.buffer = audioBuffer;
   source.connect(ctx.destination);
+
   const startTime = Math.max(ctx.currentTime + 0.05, nextStartTime);
   source.start(startTime);
   nextStartTime = startTime + audioBuffer.duration;
@@ -89,7 +71,11 @@ function scheduleAudioBuffer(audioBuffer) {
   source.onended = () => {
     activeSources = activeSources.filter((s) => s !== source);
     if (activeSources.length === 0 && !isGenerating && !isCancelled) {
-      chrome.runtime.sendMessage({ type: "TTS_STATUS", status: "Finished playing.", state: "idle" });
+      chrome.runtime.sendMessage({
+        type: "TTS_STATUS",
+        status: "Finished playing.",
+        state: "idle"
+      });
     }
   };
 }
@@ -98,12 +84,19 @@ function stopPlayback() {
   isCancelled = true;
   isGenerating = false;
   nextStartTime = 0;
-  for (const s of activeSources) {
-    try { s.stop(); s.disconnect(); } catch (_) {}
+  for (const source of activeSources) {
+    try {
+      source.stop();
+      source.disconnect();
+    } catch (_) {}
   }
   activeSources = [];
   collectedAudioBuffers = [];
-  chrome.runtime.sendMessage({ type: "TTS_STATUS", status: "Stopped.", state: "stopped" });
+  chrome.runtime.sendMessage({
+    type: "TTS_STATUS",
+    status: "Stopped.",
+    state: "stopped"
+  });
 }
 
 function exportMergedWav(buffers, sampleRate = 24000) {
@@ -138,6 +131,11 @@ function exportMergedWav(buffers, sampleRate = 24000) {
 }
 
 chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
+  if (msg.type === "PING_OFFSCREEN") {
+    sendResponse({ ready: true });
+    return true;
+  }
+
   if (msg.target !== "offscreen") return;
 
   if (msg.type === "PLAY_TEXT") {
@@ -149,30 +147,52 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
 
         const chunks = chunkText(msg.text);
         if (chunks.length === 0) {
-          chrome.runtime.sendMessage({ type: "TTS_STATUS", status: "No readable text found.", state: "error" });
+          chrome.runtime.sendMessage({
+            type: "TTS_STATUS",
+            status: "No text provided.",
+            state: "error"
+          });
           isGenerating = false;
           return;
         }
 
         const ctx = getAudioContext();
+        if (ctx.state === "suspended") {
+          await ctx.resume();
+        }
         nextStartTime = ctx.currentTime;
         collectedAudioBuffers = [];
 
-        chrome.runtime.sendMessage({ type: "TTS_STATUS", status: "Starting synthesis...", state: "playing" });
+        chrome.runtime.sendMessage({
+          type: "TTS_STATUS",
+          status: "Initializing WebGPU...",
+          state: "playing"
+        });
 
         for (let i = 0; i < chunks.length; i++) {
           if (isCancelled) break;
           const chunk = chunks[i];
           const percent = Math.round(((i + 1) / chunks.length) * 100);
 
-          chrome.runtime.sendMessage({ type: "TTS_PROGRESS", percent });
+          chrome.runtime.sendMessage({
+            type: "TTS_PROGRESS",
+            percent,
+            current: i + 1,
+            total: chunks.length
+          });
 
           const blob = await textToSpeech(chunk, {
             voice: msg.voice || "Jasper",
             speed: msg.speed || 1.0,
             model: msg.model || "nano",
             onProgress: (stage) => {
-              chrome.runtime.sendMessage({ type: "TTS_STATUS", status: stage, state: "busy" });
+              if (typeof stage === "string") {
+                chrome.runtime.sendMessage({
+                  type: "TTS_STATUS",
+                  status: stage,
+                  state: "busy"
+                });
+              }
             }
           });
 
@@ -185,11 +205,17 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
         }
 
         isGenerating = false;
-        if (!isCancelled) chrome.runtime.sendMessage({ type: "TTS_AUDIO_READY" });
+        if (!isCancelled) {
+          chrome.runtime.sendMessage({ type: "TTS_AUDIO_READY" });
+        }
       } catch (err) {
         console.error("Offscreen Engine Error:", err);
         isGenerating = false;
-        chrome.runtime.sendMessage({ type: "TTS_STATUS", status: `Error: ${err.message}`, state: "error" });
+        chrome.runtime.sendMessage({
+          type: "TTS_STATUS",
+          status: `GPU Error: ${err.message}`,
+          state: "error"
+        });
       }
     })();
   } else if (msg.type === "STOP_AUDIO") {
@@ -198,7 +224,9 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     if (collectedAudioBuffers.length > 0) {
       const mergedBlob = exportMergedWav(collectedAudioBuffers, 24000);
       const reader = new FileReader();
-      reader.onloadend = () => sendResponse({ dataUrl: reader.result });
+      reader.onloadend = () => {
+        sendResponse({ dataUrl: reader.result });
+      };
       reader.readAsDataURL(mergedBlob);
       return true;
     }

@@ -8,10 +8,13 @@
     "watch": "esbuild src/sidepanel.js src/offscreen.js src/extractor.js --bundle --format=esm --outdir=dist --watch"
   },
   "dependencies": {
-    "@mozilla/readability": "^0.5.0",
+    "@mozilla/readability": "^0.6.0",
     "kitten-tts-webgpu": "^0.1.1"
   },
   "devDependencies": {
     "esbuild": "^0.28.1"
+  },
+  "allowScripts": {
+    "esbuild@0.28.2": true
   }
 }

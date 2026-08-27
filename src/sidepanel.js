@@ -1,4 +1,3 @@
-// src/sidepanel.js
 const themeSelect = document.getElementById("themeSelect");
 const extractArticleBtn = document.getElementById("extractArticleBtn");
 const voiceSelect = document.getElementById("voiceSelect");

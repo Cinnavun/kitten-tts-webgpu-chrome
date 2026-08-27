@@ -5,20 +5,21 @@
     <title>Kitten TTS WebGPU</title>
     <style>
       :root {
-        --font-stack:
-          system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
-          "Helvetica Neue", Arial, sans-serif;
+        --font-stack: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
         --bg: #f8fafc;
         --card-bg: #ffffff;
         --card-border: #e2e8f0;
         --text-main: #0f172a;
         --text-muted: #64748b;
         --text-sub: #94a3b8;
+
         --accent: #4f46e5;
         --accent-gradient: linear-gradient(135deg, #6366f1 0%, #4f46e5 100%);
         --stop-bg: #ef4444;
         --stop-hover: #dc2626;
         --success-bg: #10b981;
+        --success-hover: #059669;
+
         --input-bg: #ffffff;
         --input-border: #cbd5e1;
         --input-focus: #6366f1;
@@ -35,11 +36,14 @@
         --text-main: #f8fafc;
         --text-muted: #a1a1aa;
         --text-sub: #71717a;
+
         --accent: #6366f1;
         --accent-gradient: linear-gradient(135deg, #818cf8 0%, #6366f1 100%);
         --stop-bg: #f87171;
         --stop-hover: #ef4444;
         --success-bg: #34d399;
+        --success-hover: #10b981;
+
         --input-bg: #121214;
         --input-border: #27272a;
         --input-focus: #818cf8;
@@ -55,17 +59,13 @@
         padding: 0;
       }
 
-      html, body {
-        width: 100%;
-        overflow-x: hidden;
-      }
-
       body {
         font-family: var(--font-stack);
         background-color: var(--bg);
         color: var(--text-main);
-        padding: 12px;
+        padding: 14px;
         line-height: 1.45;
+        min-width: 280px;
       }
 
       .app-header {
@@ -82,6 +82,9 @@
         align-items: center;
         gap: 8px;
       }
+      .brand-avatar {
+        font-size: 16px;
+      }
       .brand-name {
         font-size: 14px;
         font-weight: 700;
@@ -95,28 +98,13 @@
         color: var(--badge-text);
       }
 
-      select {
-        width: 100%;
-        background-color: var(--input-bg);
-        border: 1px solid var(--input-border);
-        border-radius: 8px;
-        color: var(--text-main);
-        font-family: inherit;
-        font-size: 12px;
-        outline: none;
-        padding: 7px 9px;
-        cursor: pointer;
-      }
-
-      select:focus {
-        border-color: var(--input-focus);
-      }
-
       .theme-select {
-        width: auto;
         padding: 3px 6px;
         font-size: 11px;
         border-radius: 6px;
+        border: 1px solid var(--card-border);
+        background: var(--card-bg);
+        color: var(--text-muted);
       }
 
       .card {
@@ -127,14 +115,12 @@
         margin-bottom: 12px;
         box-shadow: var(--shadow-sm);
       }
-
       .control-row {
         display: grid;
         grid-template-columns: 1fr 1fr;
         gap: 8px;
         margin-bottom: 10px;
       }
-
       label {
         display: flex;
         justify-content: space-between;
@@ -146,7 +132,7 @@
         color: var(--text-muted);
         margin-bottom: 4px;
       }
-
+      select,
       textarea {
         width: 100%;
         background: var(--input-bg);
@@ -157,22 +143,18 @@
         font-size: 12px;
         outline: none;
         padding: 7px 9px;
+      }
+      textarea {
         height: 110px;
         resize: vertical;
         line-height: 1.4;
       }
-
-      textarea:focus {
-        border-color: var(--input-focus);
-      }
-
       .textarea-header {
         display: flex;
         justify-content: space-between;
         align-items: center;
         margin-bottom: 4px;
       }
-
       .clear-btn {
         background: none;
         border: none;
@@ -183,7 +165,6 @@
       .clear-btn:hover {
         color: var(--text-muted);
       }
-
       .slider-track {
         display: flex;
         align-items: center;
@@ -293,10 +274,6 @@
         background: #6366f1;
         box-shadow: 0 0 8px #6366f1;
       }
-      .status-dot.playing {
-        background: #10b981;
-        box-shadow: 0 0 8px #10b981;
-      }
       .progress-bar-container {
         width: 100%;
         height: 6px;
@@ -312,35 +289,23 @@
         background: var(--accent);
         transition: width 0.2s ease;
       }
-      details.attributions {
+      .attributions {
         font-size: 11px;
         color: var(--text-muted);
-        border-top: 1px solid var(--card-border);
-        padding-top: 10px;
-        margin-top: 10px;
+        margin-top: 14px;
+        padding-top: 8px;
+        border-top: 1px dashed var(--card-border);
       }
-      details summary {
+      .attributions summary {
         cursor: pointer;
         font-weight: 600;
         color: var(--text-sub);
-        list-style: none;
-      }
-      details summary:hover {
-        color: var(--text-muted);
       }
       .attr-content {
         margin-top: 8px;
-        padding: 8px;
-        background: var(--card-bg);
-        border: 1px solid var(--card-border);
-        border-radius: 8px;
-        line-height: 1.5;
-      }
-      .attr-item {
-        margin-bottom: 6px;
-      }
-      .attr-item:last-child {
-        margin-bottom: 0;
+        display: flex;
+        flex-direction: column;
+        gap: 6px;
       }
       .attr-item a {
         color: var(--accent);
@@ -352,9 +317,10 @@
     </style>
   </head>
   <body>
+    <!-- Header -->
     <div class="app-header">
       <div class="brand">
-        <span>🐾</span>
+        <span class="brand-avatar">🐾</span>
         <div class="brand-name">Kitten TTS</div>
         <span class="badge-gpu">WebGPU</span>
       </div>
@@ -365,19 +331,24 @@
       </select>
     </div>
 
+    <!-- Settings Card -->
     <div class="card">
       <div class="control-row">
         <div>
           <label for="voiceSelect">Voice</label>
           <select id="voiceSelect">
-            <option value="Jasper" selected>Jasper (M)</option>
-            <option value="Bruno">Bruno (M)</option>
-            <option value="Hugo">Hugo (M)</option>
-            <option value="Leo">Leo (M)</option>
-            <option value="Bella">Bella (F)</option>
-            <option value="Luna">Luna (F)</option>
-            <option value="Rosie">Rosie (F)</option>
-            <option value="Kiki">Kiki (F)</option>
+            <optgroup label="Male">
+              <option value="Jasper" selected>Jasper</option>
+              <option value="Bruno">Bruno</option>
+              <option value="Hugo">Hugo</option>
+              <option value="Leo">Leo</option>
+            </optgroup>
+            <optgroup label="Female">
+              <option value="Bella">Bella</option>
+              <option value="Luna">Luna</option>
+              <option value="Rosie">Rosie</option>
+              <option value="Kiki">Kiki</option>
+            </optgroup>
           </select>
         </div>
         <div>
@@ -407,6 +378,7 @@
       </div>
     </div>
 
+    <!-- Text Input Card -->
     <div class="card">
       <button id="extractArticleBtn" class="btn-secondary">
         📰 Scan & Extract Article
@@ -428,6 +400,7 @@
       </button>
     </div>
 
+    <!-- Status & Progress -->
     <div class="status-card">
       <div class="status-header">
         <div id="statusDot" class="status-dot"></div>
@@ -441,38 +414,28 @@
       </div>
     </div>
 
+    <!-- Attributions Section -->
     <details class="attributions">
       <summary>⚖️ Credits & Attributions</summary>
       <div class="attr-content">
         <div class="attr-item">
           <strong>kitten-tts-webgpu</strong> npm package by
-          <a
-            href="https://github.com/svenflow/kitten-tts-webgpu"
-            target="_blank"
-            rel="noopener noreferrer"
-            >Svenflow</a
-          >
-          (MIT)
-        </div>
-        <div class="attr-item">
-          <strong>@mozilla/readability</strong> by
-          <a
-            href="https://github.com/mozilla/readability"
-            target="_blank"
-            rel="noopener noreferrer"
-            >Mozilla</a
-          >
-          (Apache 2.0)
+          <a href="https://github.com/svenflow/kitten-tts-webgpu" target="_blank" rel="noopener noreferrer">Svenflow</a> (MIT)
         </div>
         <div class="attr-item">
           <strong>Kitten TTS</strong> by
-          <a
-            href="https://huggingface.co/KittenML"
-            target="_blank"
-            rel="noopener noreferrer"
-            >KittenML</a
-          >
-          — original model (Apache 2.0)
+          <a href="https://huggingface.co/KittenML" target="_blank" rel="noopener noreferrer">KittenML</a> — original models and architecture (Apache 2.0)
+        </div>
+        <div class="attr-item">
+          <strong>espeak-ng</strong> pronunciation dictionary and letter-to-sound rules (<a href="https://github.com/espeak-ng/espeak-ng" target="_blank" rel="noopener noreferrer">GPL-3.0</a>)
+        </div>
+        <div class="attr-item">
+          <strong>phonemizer</strong> by
+          <a href="https://github.com/xenova/transformers.js" target="_blank" rel="noopener noreferrer">Xenova</a> (Apache-2.0)
+        </div>
+        <div class="attr-item">
+          <strong>@mozilla/readability</strong> by
+          <a href="https://github.com/mozilla/readability" target="_blank" rel="noopener noreferrer">Mozilla</a> (Apache-2.0)
         </div>
       </div>
     </details>
