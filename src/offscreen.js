@@ -15,151 +15,70 @@ function getAudioContext() {
   return audioCtx;
 }
 
-// 1. Comprehensive Text Sanitization (Strips symbols, expands abbreviations & currency)
-function sanitizeTextForTTS(text) {
-  if (!text) return "";
-  let cleaned = text;
-
-  // Replace URLs and emails
-  cleaned = cleaned.replace(/https?:\/\/\S+/gi, " link ");
-  cleaned = cleaned.replace(
-    /\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}\b/g,
-    " email ",
-  );
-
-  // Strip HTML tags and markdown symbols
-  cleaned = cleaned.replace(/<[^>]*>/g, " ");
-  cleaned = cleaned.replace(/[*_#`~|\[\]\(\)\{\}\<\>\\\/^]/g, " ");
-
-  // Normalize quotes and dashes
-  cleaned = cleaned.replace(/[“”„«»]/g, '"');
-  cleaned = cleaned.replace(/[‘’‚‹›`]/g, "'");
-  cleaned = cleaned.replace(/[—–―−]/g, ", ");
-
-  // Currency conversions
-  cleaned = cleaned.replace(/\$(\d+)(?:\.(\d{2}))?/g, (m, d, c) =>
-    c ? `${d} dollars and ${c} cents` : `${d} dollars`,
-  );
-  cleaned = cleaned.replace(/£(\d+)(?:\.(\d{2}))?/g, (m, d, c) =>
-    c ? `${d} pounds and ${c} cents` : `${d} pounds`,
-  );
-  cleaned = cleaned.replace(/€(\d+)(?:\.(\d{2}))?/g, (m, d, c) =>
-    c ? `${d} euros and ${c} cents` : `${d} euros`,
-  );
-  cleaned = cleaned.replace(/¥(\d+)/g, "$1 yen");
-
-  // Symbols to spoken English
-  cleaned = cleaned.replace(/%/g, " percent ");
-  cleaned = cleaned.replace(/&/g, " and ");
-  cleaned = cleaned.replace(/@/g, " at ");
-  cleaned = cleaned.replace(/\+/g, " plus ");
-  cleaned = cleaned.replace(/=/g, " equals ");
-  cleaned = cleaned.replace(/°/g, " degrees ");
-  cleaned = cleaned.replace(/#/g, " number ");
-
-  // Common abbreviation expansions
-  cleaned = cleaned.replace(/\be\.g\./gi, "for example");
-  cleaned = cleaned.replace(/\bi\.e\./gi, "that is");
-  cleaned = cleaned.replace(/\betc\./gi, "etcetera");
-  cleaned = cleaned.replace(/\bvs\./gi, "versus");
-  cleaned = cleaned.replace(/\bDr\./gi, "Doctor");
-  cleaned = cleaned.replace(/\bMr\./gi, "Mister");
-  cleaned = cleaned.replace(/\bMrs\./gi, "Missus");
-  cleaned = cleaned.replace(/\bMs\./gi, "Mizz");
-  cleaned = cleaned.replace(/\bProf\./gi, "Professor");
-  cleaned = cleaned.replace(/\bInc\./gi, "Incorporated");
-  cleaned = cleaned.replace(/\bLtd\./gi, "Limited");
-
-  // Filter out emojis, math operators, and foreign symbols that crash phonemizer
-  cleaned = cleaned.replace(/[^\w\s.,!?'":;\-]/g, " ");
-
-  // Collapse repeated punctuation and whitespace
-  cleaned = cleaned.replace(/\.{2,}/g, ".");
-  cleaned = cleaned.replace(/!{2,}/g, "!");
-  cleaned = cleaned.replace(/\?{2,}/g, "?");
-  cleaned = cleaned.replace(/,{2,}/g, ",");
-  cleaned = cleaned.replace(/-{2,}/g, "-");
-  cleaned = cleaned.replace(/\s+/g, " ").trim();
-
-  return cleaned;
-}
-
-// 2. Cohesive Sentence Chunking
+// Split into single-sentence chunks under ~180 chars to stay well below the 2s Windows TDR threshold
 function chunkText(text) {
-  const cleaned = sanitizeTextForTTS(text);
-  if (!cleaned) return [];
+  if (!text || typeof text !== "string") return [];
 
-  let rawSentences = [];
+  const trimmed = text.trim();
+  if (!trimmed) return [];
+
+  let sentences = [];
   if (typeof Intl !== "undefined" && Intl.Segmenter) {
     const segmenter = new Intl.Segmenter("en", { granularity: "sentence" });
-    rawSentences = Array.from(segmenter.segment(cleaned)).map((s) =>
-      s.segment.trim(),
-    );
+    sentences = Array.from(segmenter.segment(trimmed))
+      .map((s) => s.segment.trim())
+      .filter((s) => s.length > 0);
   } else {
-    rawSentences = cleaned
-      .match(/[^.!?\n]+[.!?\n]+|[^.!?\n]+$/g)
-      ?.map((s) => s.trim()) || [cleaned];
+    sentences = trimmed.match(/[^.!?\n]+[.!?\n]+|[^.!?\n]+$/g)?.map((s) => s.trim()) || [trimmed];
   }
 
-  rawSentences = rawSentences.filter((s) => /[a-zA-Z0-9]/.test(s));
+  const MAX_CHUNK_LENGTH = 180;
+  const finalChunks = [];
 
-  // Split any sentence exceeding 350 characters
-  const MAX_CHUNK = 350;
-  const splitSentences = [];
-
-  for (const s of rawSentences) {
-    if (s.length <= MAX_CHUNK) {
-      splitSentences.push(s);
+  for (const sentence of sentences) {
+    if (sentence.length <= MAX_CHUNK_LENGTH) {
+      finalChunks.push(sentence);
     } else {
-      const clauses = s.split(/(?<=[;,—–:])\s+/);
-      let currentClause = "";
+      // Split overly long sentences on punctuation/clauses
+      const clauses = sentence.split(/(?<=[,;:—–\n])\s+/);
+      let current = "";
       for (const clause of clauses) {
-        if (clause.length > MAX_CHUNK) {
+        if (clause.length > MAX_CHUNK_LENGTH) {
           const words = clause.split(/\s+/);
-          let subChunk = "";
-          for (const word of words) {
-            if ((subChunk + " " + word).trim().length > MAX_CHUNK) {
-              if (subChunk) splitSentences.push(subChunk.trim());
-              subChunk = word;
+          let sub = "";
+          for (const w of words) {
+            if ((sub + " " + w).trim().length > MAX_CHUNK_LENGTH) {
+              if (sub) finalChunks.push(sub.trim());
+              sub = w;
             } else {
-              subChunk = subChunk ? `${subChunk} ${word}` : word;
+              sub = sub ? `${sub} ${w}` : w;
             }
           }
-          if (subChunk) splitSentences.push(subChunk.trim());
-        } else if ((currentClause + " " + clause).trim().length > MAX_CHUNK) {
-          if (currentClause) splitSentences.push(currentClause.trim());
-          currentClause = clause;
+          if (sub) finalChunks.push(sub.trim());
+        } else if ((current + " " + clause).trim().length > MAX_CHUNK_LENGTH) {
+          if (current) finalChunks.push(current.trim());
+          current = clause;
         } else {
-          currentClause = currentClause ? `${currentClause} ${clause}` : clause;
+          current = current ? `${current} ${clause}` : clause;
         }
       }
-      if (currentClause) splitSentences.push(currentClause.trim());
+      if (current) finalChunks.push(current.trim());
     }
   }
 
-  // Merge short adjacent sentences up to ~280 characters for smooth speech flow
-  const TARGET_CHUNK = 280;
-  const mergedChunks = [];
-  let buffer = "";
-
-  for (const item of splitSentences) {
-    if (!buffer) {
-      buffer = item;
-    } else if ((buffer + " " + item).length <= TARGET_CHUNK) {
-      buffer = `${buffer} ${item}`;
-    } else {
-      mergedChunks.push(buffer);
-      buffer = item;
-    }
-  }
-  if (buffer) {
-    mergedChunks.push(buffer);
-  }
-
-  return mergedChunks.filter((c) => /[a-zA-Z0-9]/.test(c));
+  return finalChunks.filter((c) => c && /[a-zA-Z0-9]/.test(c));
 }
 
-// 3. Audio Scheduling & Merging
+// Timeout wrapper so the UI never stalls indefinitely if a shader crashes
+function synthesizeWithTimeout(text, options, timeoutMs = 12000) {
+  return Promise.race([
+    textToSpeech(text, options),
+    new Promise((_, reject) =>
+      setTimeout(() => reject(new Error("GPU generation timed out or device hung.")), timeoutMs)
+    )
+  ]);
+}
+
 function scheduleAudioBuffer(audioBuffer) {
   const ctx = getAudioContext();
   if (ctx.state === "suspended") {
@@ -168,6 +87,7 @@ function scheduleAudioBuffer(audioBuffer) {
   const source = ctx.createBufferSource();
   source.buffer = audioBuffer;
   source.connect(ctx.destination);
+
   const startTime = Math.max(ctx.currentTime + 0.05, nextStartTime);
   source.start(startTime);
   nextStartTime = startTime + audioBuffer.duration;
@@ -179,7 +99,7 @@ function scheduleAudioBuffer(audioBuffer) {
       chrome.runtime.sendMessage({
         type: "TTS_STATUS",
         status: "Finished playing.",
-        state: "idle",
+        state: "idle"
       });
     }
   };
@@ -200,7 +120,7 @@ function stopPlayback() {
   chrome.runtime.sendMessage({
     type: "TTS_STATUS",
     status: "Stopped.",
-    state: "stopped",
+    state: "stopped"
   });
 }
 
@@ -209,8 +129,7 @@ function exportMergedWav(buffers, sampleRate = 24000) {
   const wavBuffer = new ArrayBuffer(44 + totalSamples * 2);
   const view = new DataView(wavBuffer);
   const writeString = (offset, str) => {
-    for (let i = 0; i < str.length; i++)
-      view.setUint8(offset + i, str.charCodeAt(i));
+    for (let i = 0; i < str.length; i++) view.setUint8(offset + i, str.charCodeAt(i));
   };
   writeString(0, "RIFF");
   view.setUint32(4, 36 + totalSamples * 2, true);
@@ -236,8 +155,12 @@ function exportMergedWav(buffers, sampleRate = 24000) {
   return new Blob([wavBuffer], { type: "audio/wav" });
 }
 
-// 4. Runtime Message Listener
 chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
+  if (msg.type === "PING_OFFSCREEN") {
+    sendResponse({ ready: true });
+    return true;
+  }
+
   if (msg.target !== "offscreen") return;
 
   if (msg.type === "PLAY_TEXT") {
@@ -251,21 +174,24 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
         if (chunks.length === 0) {
           chrome.runtime.sendMessage({
             type: "TTS_STATUS",
-            status: "No readable alphanumeric text found.",
-            state: "error",
+            status: "No text provided.",
+            state: "error"
           });
           isGenerating = false;
           return;
         }
 
         const ctx = getAudioContext();
+        if (ctx.state === "suspended") {
+          await ctx.resume();
+        }
         nextStartTime = ctx.currentTime;
         collectedAudioBuffers = [];
 
         chrome.runtime.sendMessage({
           type: "TTS_STATUS",
           status: "Initializing WebGPU...",
-          state: "playing",
+          state: "playing"
         });
 
         for (let i = 0; i < chunks.length; i++) {
@@ -275,22 +201,24 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
 
           chrome.runtime.sendMessage({
             type: "TTS_PROGRESS",
-            percent: percent,
+            percent,
             current: i + 1,
-            total: chunks.length,
+            total: chunks.length
           });
 
-          const blob = await textToSpeech(chunk, {
+          const blob = await synthesizeWithTimeout(chunk, {
             voice: msg.voice || "Jasper",
             speed: msg.speed || 1.0,
             model: msg.model || "nano",
             onProgress: (stage) => {
-              chrome.runtime.sendMessage({
-                type: "TTS_STATUS",
-                status: stage,
-                state: "busy",
-              });
-            },
+              if (typeof stage === "string") {
+                chrome.runtime.sendMessage({
+                  type: "TTS_STATUS",
+                  status: stage,
+                  state: "busy"
+                });
+              }
+            }
           });
 
           if (isCancelled || !blob) break;
@@ -299,6 +227,9 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
           const audioBuffer = await ctx.decodeAudioData(arrayBuf);
           collectedAudioBuffers.push(audioBuffer);
           scheduleAudioBuffer(audioBuffer);
+
+          // Yield to give D3D12 command queue time to flush and avoid TDR reset
+          await new Promise((r) => setTimeout(r, 60));
         }
 
         isGenerating = false;
@@ -311,7 +242,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
         chrome.runtime.sendMessage({
           type: "TTS_STATUS",
           status: `GPU Error: ${err.message}`,
-          state: "error",
+          state: "error"
         });
       }
     })();
@@ -327,16 +258,5 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       reader.readAsDataURL(mergedBlob);
       return true;
     }
-  } else if (msg.type === "PREWARM_MODEL") {
-    (async () => {
-      try {
-        // Warm the WebGPU device and cache the default model in the background
-        await textToSpeech("Ready.", {
-          model: msg.model || "nano",
-          voice: "Jasper",
-        });
-        console.log("[KittenTTS] Background pre-warm complete.");
-      } catch (_) {}
-    })();
   }
 });

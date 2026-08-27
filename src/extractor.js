@@ -2,7 +2,7 @@
 import { Readability } from "@mozilla/readability";
 
 window.__kittenArticleExtractor = function () {
-  // If the user has explicitly selected text, prioritize the selection
+  // 1. If text is highlighted, prioritize selection
   const selection = window.getSelection()?.toString().trim();
   if (selection && selection.length > 10) {
     return {
@@ -11,17 +11,13 @@ window.__kittenArticleExtractor = function () {
     };
   }
 
+  // 2. Standard Mozilla Readability parsing
   try {
-    // Clone document so Readability doesn't modify the active webpage
     const documentClone = document.cloneNode(true);
-    const reader = new Readability(documentClone, {
-      charThreshold: 40,
-      nbTopCandidates: 5
-    });
+    const reader = new Readability(documentClone);
     const parsed = reader.parse();
 
     if (parsed && parsed.textContent) {
-      // Normalize whitespace into clean paragraph breaks
       const cleanText = parsed.textContent
         .split("\n")
         .map((line) => line.trim())
@@ -35,13 +31,13 @@ window.__kittenArticleExtractor = function () {
       };
     }
   } catch (err) {
-    console.warn("[KittenTTS] Readability parse failed, falling back to visible text:", err);
+    console.warn("[KittenTTS] Readability parse error:", err);
   }
 
-  // Fallback if no article container is detected
+  // 3. Fallback to visible body text
   const bodyText = document.body?.innerText?.trim() || "";
   return {
     title: document.title || "",
-    text: bodyText.slice(0, 5000)
+    text: bodyText
   };
 };

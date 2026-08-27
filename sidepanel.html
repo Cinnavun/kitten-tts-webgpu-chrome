@@ -5,9 +5,7 @@
     <title>Kitten TTS WebGPU</title>
     <style>
       :root {
-        --font-stack:
-          system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
-          "Helvetica Neue", Arial, sans-serif;
+        --font-stack: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
         --bg: #f8fafc;
         --card-bg: #ffffff;
         --card-border: #e2e8f0;
@@ -291,23 +289,38 @@
         background: var(--accent);
         transition: width 0.2s ease;
       }
-      .snippet-text {
+      .attributions {
         font-size: 11px;
         color: var(--text-muted);
-        margin-top: 4px;
-        font-style: italic;
-        white-space: nowrap;
-        overflow: hidden;
-        text-overflow: ellipsis;
+        margin-top: 14px;
+        padding-top: 8px;
+        border-top: 1px dashed var(--card-border);
+      }
+      .attributions summary {
+        cursor: pointer;
+        font-weight: 600;
+        color: var(--text-sub);
+      }
+      .attr-content {
+        margin-top: 8px;
+        display: flex;
+        flex-direction: column;
+        gap: 6px;
+      }
+      .attr-item a {
+        color: var(--accent);
+        text-decoration: none;
+      }
+      .attr-item a:hover {
+        text-decoration: underline;
       }
     </style>
   </head>
   <body>
-
     <!-- Header -->
-<div class="app-header">
+    <div class="app-header">
       <div class="brand">
-        <span>🐾</span>
+        <span class="brand-avatar">🐾</span>
         <div class="brand-name">Kitten TTS</div>
         <span class="badge-gpu">WebGPU</span>
       </div>
@@ -387,19 +400,19 @@
       </button>
     </div>
 
-<!-- Status & Progress -->
-  <div class="status-card">
-    <div class="status-header">
-      <div id="statusDot" class="status-dot"></div>
-      <span id="statusText">Ready</span>
+    <!-- Status & Progress -->
+    <div class="status-card">
+      <div class="status-header">
+        <div id="statusDot" class="status-dot"></div>
+        <span id="statusText">Ready</span>
+      </div>
+      <div id="progressContainer" class="progress-bar-container">
+        <div id="progressFill" class="progress-bar-fill"></div>
+      </div>
+      <div style="display: flex; justify-content: flex-end; margin-top: 8px;">
+        <button id="resetGpuBtn" class="clear-btn" title="Recreates GPU worker and clears model cache">🔄 Reset Engine / Clear Cache</button>
+      </div>
     </div>
-    <div id="progressContainer" class="progress-bar-container">
-      <div id="progressFill" class="progress-bar-fill"></div>
-    </div>
-    <div style="display: flex; justify-content: flex-end; margin-top: 8px;">
-      <button id="resetGpuBtn" class="clear-btn" title="Recreates GPU worker and clears model cache">🔄 Reset Engine / Clear Cache</button>
-    </div>
-  </div>
 
     <!-- Attributions Section -->
     <details class="attributions">
@@ -407,54 +420,22 @@
       <div class="attr-content">
         <div class="attr-item">
           <strong>kitten-tts-webgpu</strong> npm package by
-          <a
-            href="https://github.com/svenflow/kitten-tts-webgpu"
-            target="_blank"
-            rel="noopener noreferrer"
-            >Svenflow</a
-          >
-          (MIT)
+          <a href="https://github.com/svenflow/kitten-tts-webgpu" target="_blank" rel="noopener noreferrer">Svenflow</a> (MIT)
         </div>
         <div class="attr-item">
           <strong>Kitten TTS</strong> by
-          <a
-            href="https://huggingface.co/KittenML"
-            target="_blank"
-            rel="noopener noreferrer"
-            >KittenML</a
-          >
-          — original models and architecture (Apache 2.0)
+          <a href="https://huggingface.co/KittenML" target="_blank" rel="noopener noreferrer">KittenML</a> — original models and architecture (Apache 2.0)
         </div>
         <div class="attr-item">
-          <strong>espeak-ng</strong> pronunciation dictionary and
-          letter-to-sound rules (
-          <a
-            href="https://github.com/espeak-ng/espeak-ng"
-            target="_blank"
-            rel="noopener noreferrer"
-            >GPL-3.0</a
-          >)
+          <strong>espeak-ng</strong> pronunciation dictionary and letter-to-sound rules (<a href="https://github.com/espeak-ng/espeak-ng" target="_blank" rel="noopener noreferrer">GPL-3.0</a>)
         </div>
         <div class="attr-item">
           <strong>phonemizer</strong> by
-          <a
-            href="https://github.com/xenova/transformers.js"
-            target="_blank"
-            rel="noopener noreferrer"
-            >Xenova</a
-          >
-          (espeak-ng WASM, used as primary backend on Chrome/Firefox; pure JS
-          fallback on Safari)
+          <a href="https://github.com/xenova/transformers.js" target="_blank" rel="noopener noreferrer">Xenova</a> (Apache-2.0)
         </div>
         <div class="attr-item">
           <strong>@mozilla/readability</strong> by
-          <a
-            href="https://github.com/mozilla/readability"
-            target="_blank"
-            rel="noopener noreferrer"
-            >Mozilla</a
-          >
-          (Apache 2.0) for full page / article text extraction
+          <a href="https://github.com/mozilla/readability" target="_blank" rel="noopener noreferrer">Mozilla</a> (Apache-2.0)
         </div>
       </div>
     </details>

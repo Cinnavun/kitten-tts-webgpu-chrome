@@ -7,3 +7,10 @@ gitignore/combined_code.txt
 
 workflow.bat
 .gitignore
+dist/sidepanel.js
+gitignore/kittenttswebgpuscripts.txt
+workflow.bat
+gitignore/combined_code.txt
+node_modules/.package-lock.json
+gitignore/Concatenate.ps1
+node_modules/.package-lock.json
