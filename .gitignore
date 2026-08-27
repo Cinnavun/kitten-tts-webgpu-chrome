@@ -4,4 +4,6 @@ dist/*js
 dist/*
 gitignore/kittenttswebgpuscripts.txt
 gitignore/combined_code.txt
+
+workflow.bat
 .gitignore
