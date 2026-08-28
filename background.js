@@ -322,12 +322,21 @@ chrome.commands.onCommand.addListener(async (command, tab) => {
   }
 });
 
-// 6. Global Message Router (Updates Badge & In-Page Toast from Offscreen progress)
-chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
-  if (msg.type === "HEARTBEAT") {
-    // Keeps service worker alive
-    return;
-  }
+// ─── Port-based relay ─────────────────────────────────────────────────────────
+// tts-stream: connected by the offscreen document for progress/status messages.
+// tts-ui:     connected by the side panel to receive those relayed messages.
+// An open Port is a native MV3 keep-alive — no heartbeat interval needed.
+
+let offscreenPort = null;   // the tts-stream port from offscreen.js
+let uiPort = null;          // the tts-ui port from sidepanel.js
+
+/**
+ * Handle a progress/status message arriving over the tts-stream port.
+ * Updates the action badge, the in-page toast, and relays to the side panel.
+ */
+function handleStreamMessage(msg) {
+  // Relay to side panel if it's connected
+  try { uiPort?.postMessage(msg); } catch (_) { uiPort = null; }
 
   if (msg.type === "TTS_PROGRESS") {
     updateActionBadge("loading", `${msg.percent}%`, `Synthesizing audio: ${msg.percent}%`);
@@ -348,6 +357,21 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       sendToastToActiveTab({ text: msg.status });
     }
   }
+}
+
+chrome.runtime.onConnect.addListener((port) => {
+  if (port.name === "tts-stream") {
+    offscreenPort = port;
+    port.onMessage.addListener(handleStreamMessage);
+    port.onDisconnect.addListener(() => { offscreenPort = null; });
+  } else if (port.name === "tts-ui") {
+    uiPort = port;
+    port.onDisconnect.addListener(() => { uiPort = null; });
+  }
+});
+
+// 6. Global Message Router
+chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
 
   if (msg.type === "ENSURE_OFFSCREEN") {
     setupOffscreenDocument().then(() => sendResponse({ ready: true }));

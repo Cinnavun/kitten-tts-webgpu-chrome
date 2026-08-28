@@ -250,31 +250,39 @@ function resetControls(statusMsg) {
   if (statusText) statusText.textContent = statusMsg;
 }
 
-// 8. Progress Listener
-chrome.runtime.onMessage.addListener((msg) => {
-  if (msg.type === "TTS_PROGRESS") {
-    statusDot.className = "status-dot busy";
-    if (progressContainer) progressContainer.style.display = "block";
-    if (progressFill) progressFill.style.width = `${msg.percent}%`;
-    statusText.textContent = `Synthesizing audio... ${msg.percent}%`;
-    stopBtn.disabled = false;
-  } else if (msg.type === "TTS_STATUS") {
-    if (msg.state === "idle") {
-      resetControls("Finished playing.");
-    } else if (msg.state === "stopped") {
-      resetControls("Stopped.");
-    } else if (msg.state === "error") {
-      resetControls(msg.status || "Error occurred");
-    } else if (msg.state === "playing") {
-      statusText.textContent = "Playing audio...";
-      statusDot.className = "status-dot playing";
-    } else if (msg.state === "busy") {
-      statusText.textContent = msg.status;
+// 8. Progress Listener — connected via Port for zero-overhead relay from background
+(function connectUiPort() {
+  const port = chrome.runtime.connect({ name: "tts-ui" });
+  port.onMessage.addListener((msg) => {
+    if (msg.type === "TTS_PROGRESS") {
+      statusDot.className = "status-dot busy";
+      if (progressContainer) progressContainer.style.display = "block";
+      requestAnimationFrame(() => {
+        if (progressFill) progressFill.style.width = `${msg.percent}%`;
+        statusText.textContent = `Synthesizing audio... ${msg.percent}%`;
+      });
+      stopBtn.disabled = false;
+    } else if (msg.type === "TTS_STATUS") {
+      if (msg.state === "idle") {
+        resetControls("Finished playing.");
+      } else if (msg.state === "stopped") {
+        resetControls("Stopped.");
+      } else if (msg.state === "error") {
+        resetControls(msg.status || "Error occurred");
+      } else if (msg.state === "playing") {
+        statusText.textContent = "Playing audio...";
+        statusDot.className = "status-dot playing";
+      } else if (msg.state === "busy") {
+        statusText.textContent = msg.status;
+      }
+    } else if (msg.type === "TTS_AUDIO_READY") {
+      downloadBtn.style.display = "block";
     }
-  } else if (msg.type === "TTS_AUDIO_READY") {
-    downloadBtn.style.display = "block";
-  }
-});
+  });
+  // Reconnect if the service worker restarts and drops the port
+  port.onDisconnect.addListener(() => setTimeout(connectUiPort, 200));
+})();
+
 
 // 9. Reset Engine Action
 resetGpuBtn?.addEventListener("click", () => {

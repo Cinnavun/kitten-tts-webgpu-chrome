@@ -12,10 +12,35 @@ let generationId = 0;
 /** Last synthesis parameters — used to detect cache hits for instant replay */
 let lastSynthParams = null;
 
-// Send a heartbeat every 20 seconds to prevent service worker hibernation
-setInterval(() => {
-  chrome.runtime.sendMessage({ type: 'HEARTBEAT' }).catch(() => {});
-}, 20000);
+// Persistent port to background for progress/status — native MV3 keep-alive.
+// Reconnects automatically if the service worker was restarted.
+let bgPort = null;
+
+function getBgPort() {
+  if (bgPort) return bgPort;
+  bgPort = chrome.runtime.connect({ name: "tts-stream" });
+  bgPort.onDisconnect.addListener(() => {
+    bgPort = null;
+    // Reconnect after a tick — the service worker may have been restarted
+    setTimeout(() => getBgPort(), 100);
+  });
+  return bgPort;
+}
+
+// Establish the port immediately on document load
+getBgPort();
+
+/** Send a message over the persistent port, with a fallback reconnect. */
+function portSend(msg) {
+  try {
+    getBgPort().postMessage(msg);
+  } catch (_) {
+    bgPort = null;
+    setTimeout(() => {
+      try { getBgPort().postMessage(msg); } catch (_) {}
+    }, 150);
+  }
+}
 
 /** Pre-buffering: collect first N chunks before scheduling playback to prevent audio gaps */
 const PRE_BUFFER_THRESHOLD = 3;
@@ -48,7 +73,7 @@ function scheduleAudioBuffer(audioBuffer) {
   source.onended = () => {
     activeSources = activeSources.filter((s) => s !== source);
     if (activeSources.length === 0 && !isGenerating && !isCancelled) {
-      chrome.runtime.sendMessage({
+      portSend({
         type: "TTS_STATUS",
         status: "Finished playing.",
         state: "idle"
@@ -77,7 +102,7 @@ function stopPlayback(broadcast = true) {
   ttsWorker.postMessage({ type: "STOP_AUDIO" });
 
   if (broadcast) {
-    chrome.runtime.sendMessage({
+    portSend({
       type: "TTS_STATUS",
       status: "Stopped.",
       state: "stopped"
@@ -101,7 +126,7 @@ function flushPendingSchedule() {
   }
   pendingSchedule = [];
 
-  chrome.runtime.sendMessage({
+  portSend({
     type: "TTS_STATUS",
     status: "Playing audio",
     state: "playing"
@@ -142,17 +167,17 @@ function exportMergedWav(buffers, sampleRate = 24000) {
 ttsWorker.onmessage = async (e) => {
   const msg = e.data;
 
-  // Forward status updates to background/UI
+  // Forward status updates to background/UI over the persistent port
   if (msg.type === "TTS_STATUS" || msg.type === "TTS_PROGRESS") {
     if (!isCancelled && msg.generationId === generationId) {
-      chrome.runtime.sendMessage(msg);
+      portSend(msg);
     }
   }
 
   if (msg.type === "TTS_ERROR") {
     if (!isCancelled && msg.generationId === generationId) {
       isGenerating = false;
-      chrome.runtime.sendMessage({
+      portSend({
         type: "TTS_STATUS",
         status: `GPU Error: ${msg.error}`,
         state: "error"
@@ -194,9 +219,9 @@ ttsWorker.onmessage = async (e) => {
       }
 
       if (collectedAudioBuffers.length > 0) {
-        chrome.runtime.sendMessage({ type: "TTS_AUDIO_READY" });
+        portSend({ type: "TTS_AUDIO_READY" });
       } else {
-        chrome.runtime.sendMessage({
+        portSend({
           type: "TTS_STATUS",
           status: "Finished (no audio generated)",
           state: "idle"
