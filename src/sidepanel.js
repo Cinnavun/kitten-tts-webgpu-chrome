@@ -16,6 +16,15 @@ const progressFill = document.getElementById("progressFill");
 const resetGpuBtn = document.getElementById("resetGpuBtn");
 const charCount = document.getElementById("charCount");
 
+// Utility for debouncing
+function debounce(func, timeout = 300) {
+  let timer;
+  return (...args) => {
+    clearTimeout(timer);
+    timer = setTimeout(() => { func.apply(this, args); }, timeout);
+  };
+}
+
 // 1. Theme Management
 function applyTheme(theme) {
   if (theme === "auto") {
@@ -62,9 +71,13 @@ modelSelect?.addEventListener("change", () => {
   chrome.storage.local.set({ preferredModel: modelSelect.value });
 });
 
+const saveSpeed = debounce((value) => {
+  chrome.storage.local.set({ preferredSpeed: value });
+}, 500);
+
 speedInput?.addEventListener("input", () => {
   if (speedValue) speedValue.textContent = `${speedInput.value}x`;
-  chrome.storage.local.set({ preferredSpeed: speedInput.value });
+  saveSpeed(speedInput.value);
 });
 
 // 4. Character Count & Clear Input
@@ -81,7 +94,8 @@ function updateCharCount() {
   }
 }
 
-textInput?.addEventListener("input", updateCharCount);
+const debouncedUpdateCharCount = debounce(updateCharCount, 300);
+textInput?.addEventListener("input", debouncedUpdateCharCount);
 
 clearBtn?.addEventListener("click", () => {
   if (textInput) {
@@ -215,17 +229,18 @@ stopBtn?.addEventListener("click", () => {
   resetControls("Stopped.");
 });
 
+const downloadAnchor = document.createElement("a");
+downloadAnchor.style.display = "none";
+document.body.appendChild(downloadAnchor);
+
 downloadBtn?.addEventListener("click", () => {
   chrome.runtime.sendMessage(
     { target: "offscreen", type: "GET_DOWNLOAD_BLOB" },
     (res) => {
       if (res?.dataUrl) {
-        const a = document.createElement("a");
-        a.href = res.dataUrl;
-        a.download = "kitten-tts-audio.wav";
-        document.body.appendChild(a);
-        a.click();
-        a.remove();
+        downloadAnchor.href = res.dataUrl;
+        downloadAnchor.download = "kitten-tts-audio.wav";
+        downloadAnchor.click();
       }
     },
   );
@@ -243,12 +258,11 @@ function resetControls(statusMsg) {
 // 8. Progress Listener
 chrome.runtime.onMessage.addListener((msg) => {
   if (msg.type === "TTS_PROGRESS") {
-    if (statusDot) statusDot.className = "status-dot busy";
-    if (progressContainer) progressContainer.style.display = "block";
-    if (progressFill) progressFill.style.width = `${msg.percent}%`;
-    if (statusText)
-      statusText.textContent = `Synthesizing audio... ${msg.percent}%`;
-    if (stopBtn) stopBtn.disabled = false;
+    statusDot.className = "status-dot busy";
+    progressContainer.style.display = "block";
+    progressFill.style.width = `${msg.percent}%`;
+    statusText.textContent = `Synthesizing audio... ${msg.percent}%`;
+    stopBtn.disabled = false;
   } else if (msg.type === "TTS_STATUS") {
     if (msg.state === "idle") {
       resetControls("Finished playing.");
@@ -257,13 +271,13 @@ chrome.runtime.onMessage.addListener((msg) => {
     } else if (msg.state === "error") {
       resetControls(msg.status || "Error occurred");
     } else if (msg.state === "playing") {
-      if (statusText) statusText.textContent = "Playing audio...";
-      if (statusDot) statusDot.className = "status-dot playing";
+      statusText.textContent = "Playing audio...";
+      statusDot.className = "status-dot playing";
     } else if (msg.state === "busy") {
-      if (statusText) statusText.textContent = msg.status;
+      statusText.textContent = msg.status;
     }
   } else if (msg.type === "TTS_AUDIO_READY") {
-    if (downloadBtn) downloadBtn.style.display = "block";
+    downloadBtn.style.display = "block";
   }
 });
 

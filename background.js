@@ -35,26 +35,39 @@ async function setupOffscreenDocument() {
     justification: "Synthesizing text with KittenTTS WebGPU"
   });
 
-  for (let i = 0; i < 10; i++) {
-    try {
-      const res = await chrome.runtime.sendMessage({ type: "PING_OFFSCREEN" });
-      if (res?.ready) break;
-    } catch (_) {
-      await new Promise((r) => setTimeout(r, 100));
-    }
-  }
+  return new Promise((resolve) => {
+    const listener = (msg) => {
+      if (msg.type === "OFFSCREEN_READY") {
+        chrome.runtime.onMessage.removeListener(listener);
+        resolve();
+      }
+    };
+    chrome.runtime.onMessage.addListener(listener);
+  });
 }
 
+let cachedPrefs = null;
+
+chrome.storage.onChanged.addListener((changes, area) => {
+  if (area === "local" && cachedPrefs) {
+    if (changes.preferredVoice) cachedPrefs.voice = changes.preferredVoice.newValue;
+    if (changes.preferredModel) cachedPrefs.model = changes.preferredModel.newValue;
+    if (changes.preferredSpeed) cachedPrefs.speed = parseFloat(changes.preferredSpeed.newValue || "1.0");
+  }
+});
+
 async function getStoredPreferences() {
+  if (cachedPrefs) return cachedPrefs;
   return new Promise((resolve) => {
     chrome.storage.local.get(
       { preferredVoice: "Jasper", preferredModel: "nano", preferredSpeed: "1.0" },
       (items) => {
-        resolve({
+        cachedPrefs = {
           voice: items.preferredVoice,
           model: items.preferredModel,
           speed: parseFloat(items.preferredSpeed || "1.0")
-        });
+        };
+        resolve(cachedPrefs);
       }
     );
   });
@@ -100,7 +113,13 @@ function updateActionBadge(state, text = "", tooltip = "") {
 }
 
 // 2. In-Page Floating Toast UI (Injectable helper)
+let lastToastTime = 0;
+
 async function sendToastToActiveTab(payload) {
+  const now = Date.now();
+  if (now - lastToastTime < 200 && payload.action !== "remove") return;
+  lastToastTime = now;
+
   try {
     const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
     if (!tab?.id || isBlockedUrl(tab.url)) return;
