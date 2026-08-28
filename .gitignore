@@ -14,3 +14,7 @@ gitignore/combined_code.txt
 node_modules/.package-lock.json
 gitignore/Concatenate.ps1
 node_modules/.package-lock.json
+.agents/rules/ignore-node-modules.md
+.agents/rules/workspace-rules.md
+.gitignore
+Concatenate.ps1

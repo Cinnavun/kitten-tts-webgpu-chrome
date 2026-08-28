@@ -15,6 +15,7 @@ var statusText = document.getElementById("statusText");
 var progressContainer = document.getElementById("progressContainer");
 var progressFill = document.getElementById("progressFill");
 var resetGpuBtn = document.getElementById("resetGpuBtn");
+var charCount = document.getElementById("charCount");
 function applyTheme(theme) {
   if (theme === "auto") {
     const isDark = window.matchMedia("(prefers-color-scheme: dark)").matches;
@@ -35,13 +36,44 @@ themeSelect?.addEventListener("change", (e) => {
   chrome.storage.local.set({ preferredTheme: e.target.value });
   applyTheme(e.target.value);
 });
+chrome.storage.local.get(
+  { preferredVoice: "Jasper", preferredModel: "nano", preferredSpeed: "1.0" },
+  (items) => {
+    if (voiceSelect) voiceSelect.value = items.preferredVoice;
+    if (modelSelect) modelSelect.value = items.preferredModel;
+    if (speedInput) {
+      speedInput.value = items.preferredSpeed;
+      if (speedValue) speedValue.textContent = `${items.preferredSpeed}x`;
+    }
+  }
+);
+voiceSelect?.addEventListener("change", () => {
+  chrome.storage.local.set({ preferredVoice: voiceSelect.value });
+});
+modelSelect?.addEventListener("change", () => {
+  chrome.storage.local.set({ preferredModel: modelSelect.value });
+});
 speedInput?.addEventListener("input", () => {
   if (speedValue) speedValue.textContent = `${speedInput.value}x`;
+  chrome.storage.local.set({ preferredSpeed: speedInput.value });
 });
+function updateCharCount() {
+  if (charCount && textInput) {
+    const len = textInput.value.length;
+    if (len === 0) {
+      charCount.textContent = "";
+    } else {
+      const estimatedChunks = Math.max(1, Math.ceil(len / 200));
+      charCount.textContent = `${len.toLocaleString()} chars \xB7 ~${estimatedChunks} chunk${estimatedChunks > 1 ? "s" : ""}`;
+    }
+  }
+}
+textInput?.addEventListener("input", updateCharCount);
 clearBtn?.addEventListener("click", () => {
   if (textInput) {
     textInput.value = "";
     textInput.focus();
+    updateCharCount();
   }
 });
 (async () => {
@@ -106,6 +138,7 @@ extractArticleBtn?.addEventListener("click", async () => {
         }
         if (response?.article?.text) {
           if (textInput) textInput.value = response.article.text;
+          updateCharCount();
           const titleSnippet = response.article.title ? response.article.title.slice(0, 25) + "..." : "Article";
           if (statusText)
             statusText.textContent = `Loaded "${titleSnippet}". Reading...`;
@@ -126,12 +159,14 @@ extractArticleBtn?.addEventListener("click", async () => {
 chrome.storage.local.get("ttsText", (data) => {
   if (data.ttsText && textInput) {
     textInput.value = data.ttsText;
+    updateCharCount();
     chrome.storage.local.remove("ttsText");
   }
 });
 chrome.storage.onChanged.addListener((changes, area) => {
   if (area === "local" && changes.ttsText?.newValue && textInput) {
     textInput.value = changes.ttsText.newValue;
+    updateCharCount();
     chrome.storage.local.remove("ttsText");
   }
 });

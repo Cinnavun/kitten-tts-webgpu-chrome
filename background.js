@@ -1,6 +1,17 @@
 // background.js
 const OFFSCREEN_DOCUMENT_PATH = "offscreen.html";
 
+/** URLs that cannot be injected into or extracted from. */
+const BLOCKED_URL_PREFIXES = [
+  "chrome://", "chrome-extension://", "edge://",
+  "about:", "chromewebstore.google.com"
+];
+
+function isBlockedUrl(url) {
+  if (!url) return true;
+  return BLOCKED_URL_PREFIXES.some((prefix) => url.startsWith(prefix) || url.includes(prefix));
+}
+
 async function hasOffscreenDocument() {
   if ("getContexts" in chrome.runtime) {
     const contexts = await chrome.runtime.getContexts({
@@ -49,6 +60,21 @@ async function getStoredPreferences() {
   });
 }
 
+/**
+ * Shared helper: set up offscreen document, load preferences, and dispatch PLAY_TEXT.
+ * Eliminates the repeated setup → prefs → sendMessage pattern that was duplicated 3 times.
+ */
+async function dispatchPlayText(text) {
+  await setupOffscreenDocument();
+  const prefs = await getStoredPreferences();
+  chrome.runtime.sendMessage({
+    target: "offscreen",
+    type: "PLAY_TEXT",
+    text,
+    ...prefs
+  }).catch(() => {});
+}
+
 // 1. Toolbar Badge & Tooltip Manager
 function updateActionBadge(state, text = "", tooltip = "") {
   if (state === "loading") {
@@ -77,7 +103,7 @@ function updateActionBadge(state, text = "", tooltip = "") {
 async function sendToastToActiveTab(payload) {
   try {
     const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
-    if (!tab?.id || tab.url.startsWith("chrome://") || tab.url.startsWith("edge://")) return;
+    if (!tab?.id || isBlockedUrl(tab.url)) return;
 
     await chrome.scripting.executeScript({
       target: { tabId: tab.id },
@@ -136,13 +162,7 @@ async function openSidePanel(tab) {
 
 async function runArticleExtractor(tab) {
   if (!tab?.id) throw new Error("No active tab found.");
-  if (
-    !tab.url ||
-    tab.url.startsWith("chrome://") ||
-    tab.url.startsWith("edge://") ||
-    tab.url.startsWith("about:") ||
-    tab.url.includes("chromewebstore.google.com")
-  ) {
+  if (isBlockedUrl(tab.url)) {
     throw new Error("Cannot extract from browser internal pages.");
   }
 
@@ -156,7 +176,19 @@ async function runArticleExtractor(tab) {
     func: () => window.__kittenArticleExtractor?.()
   });
 
-  return results?.[0]?.result;
+  let article = results?.[0]?.result;
+  
+  if (article?.html) {
+    await setupOffscreenDocument();
+    article = await chrome.runtime.sendMessage({
+      target: "offscreen",
+      type: "PARSE_HTML",
+      html: article.html,
+      url: article.url
+    });
+  }
+  
+  return article;
 }
 
 // 3. Register Context Menus
@@ -194,39 +226,18 @@ chrome.contextMenus.onClicked.addListener(async (info, tab) => {
   if (info.menuItemId === "selection-read-bg" && info.selectionText) {
     updateActionBadge("loading", "0%", "Starting WebGPU...");
     await sendToastToActiveTab({ text: "Initializing WebGPU..." });
-    await setupOffscreenDocument();
-    const prefs = await getStoredPreferences();
-    chrome.runtime.sendMessage({
-      target: "offscreen",
-      type: "PLAY_TEXT",
-      text: info.selectionText,
-      ...prefs
-    }).catch(() => {});
+    await dispatchPlayText(info.selectionText);
   } else if (info.menuItemId === "selection-read-panel" && info.selectionText) {
     await openSidePanel(tab);
     await chrome.storage.local.set({ ttsText: info.selectionText });
-    await setupOffscreenDocument();
-    const prefs = await getStoredPreferences();
-    chrome.runtime.sendMessage({
-      target: "offscreen",
-      type: "PLAY_TEXT",
-      text: info.selectionText,
-      ...prefs
-    }).catch(() => {});
+    await dispatchPlayText(info.selectionText);
   } else if (info.menuItemId === "page-read-article-bg" && tab?.id) {
     try {
       updateActionBadge("loading", "...", "Extracting article...");
       const article = await runArticleExtractor(tab);
       if (article?.text) {
         await sendToastToActiveTab({ text: "Article extracted, starting GPU..." });
-        await setupOffscreenDocument();
-        const prefs = await getStoredPreferences();
-        chrome.runtime.sendMessage({
-          target: "offscreen",
-          type: "PLAY_TEXT",
-          text: article.text,
-          ...prefs
-        }).catch(() => {});
+        await dispatchPlayText(article.text);
       } else {
         updateActionBadge("error", "!", "No readable article found.");
         await sendToastToActiveTab({ action: "remove" });
@@ -247,14 +258,7 @@ chrome.commands.onCommand.addListener(async (command, tab) => {
       updateActionBadge("loading", "...", "Extracting article...");
       const article = await runArticleExtractor(tab);
       if (article?.text) {
-        await setupOffscreenDocument();
-        const prefs = await getStoredPreferences();
-        chrome.runtime.sendMessage({
-          target: "offscreen",
-          type: "PLAY_TEXT",
-          text: article.text,
-          ...prefs
-        }).catch(() => {});
+        await dispatchPlayText(article.text);
       }
     } catch (err) {
       updateActionBadge("error", "!", err.message);

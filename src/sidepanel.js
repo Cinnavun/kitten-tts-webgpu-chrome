@@ -14,6 +14,7 @@ const statusText = document.getElementById("statusText");
 const progressContainer = document.getElementById("progressContainer");
 const progressFill = document.getElementById("progressFill");
 const resetGpuBtn = document.getElementById("resetGpuBtn");
+const charCount = document.getElementById("charCount");
 
 // 1. Theme Management
 function applyTheme(theme) {
@@ -39,19 +40,58 @@ themeSelect?.addEventListener("change", (e) => {
   applyTheme(e.target.value);
 });
 
-// 2. Speed Slider & Clear Input
+// 2. Load Saved Preferences (voice, model, speed)
+chrome.storage.local.get(
+  { preferredVoice: "Jasper", preferredModel: "nano", preferredSpeed: "1.0" },
+  (items) => {
+    if (voiceSelect) voiceSelect.value = items.preferredVoice;
+    if (modelSelect) modelSelect.value = items.preferredModel;
+    if (speedInput) {
+      speedInput.value = items.preferredSpeed;
+      if (speedValue) speedValue.textContent = `${items.preferredSpeed}x`;
+    }
+  },
+);
+
+// 3. Save Preferences on Change
+voiceSelect?.addEventListener("change", () => {
+  chrome.storage.local.set({ preferredVoice: voiceSelect.value });
+});
+
+modelSelect?.addEventListener("change", () => {
+  chrome.storage.local.set({ preferredModel: modelSelect.value });
+});
+
 speedInput?.addEventListener("input", () => {
   if (speedValue) speedValue.textContent = `${speedInput.value}x`;
+  chrome.storage.local.set({ preferredSpeed: speedInput.value });
 });
+
+// 4. Character Count & Clear Input
+function updateCharCount() {
+  if (charCount && textInput) {
+    const len = textInput.value.length;
+    if (len === 0) {
+      charCount.textContent = "";
+    } else {
+      // Rough estimate: ~200 chars per chunk
+      const estimatedChunks = Math.max(1, Math.ceil(len / 200));
+      charCount.textContent = `${len.toLocaleString()} chars · ~${estimatedChunks} chunk${estimatedChunks > 1 ? "s" : ""}`;
+    }
+  }
+}
+
+textInput?.addEventListener("input", updateCharCount);
 
 clearBtn?.addEventListener("click", () => {
   if (textInput) {
     textInput.value = "";
     textInput.focus();
+    updateCharCount();
   }
 });
 
-// 3. Silent Pre-Warm on Panel Load
+// 5. Silent Pre-Warm on Panel Load
 (async () => {
   await chrome.runtime.sendMessage({ type: "ENSURE_OFFSCREEN" });
   chrome.runtime.sendMessage({
@@ -89,7 +129,7 @@ async function startPlayback(textToPlay) {
   if (statusText) statusText.textContent = "Synthesizing with WebGPU...";
 }
 
-// 4. Scan & Auto-Play Article Action
+// 6. Scan & Auto-Play Article Action
 extractArticleBtn?.addEventListener("click", async () => {
   try {
     if (statusText)
@@ -125,6 +165,7 @@ extractArticleBtn?.addEventListener("click", async () => {
 
         if (response?.article?.text) {
           if (textInput) textInput.value = response.article.text;
+          updateCharCount();
           const titleSnippet =
             response.article.title ?
               response.article.title.slice(0, 25) + "..."
@@ -153,6 +194,7 @@ extractArticleBtn?.addEventListener("click", async () => {
 chrome.storage.local.get("ttsText", (data) => {
   if (data.ttsText && textInput) {
     textInput.value = data.ttsText;
+    updateCharCount();
     chrome.storage.local.remove("ttsText");
   }
 });
@@ -160,11 +202,12 @@ chrome.storage.local.get("ttsText", (data) => {
 chrome.storage.onChanged.addListener((changes, area) => {
   if (area === "local" && changes.ttsText?.newValue && textInput) {
     textInput.value = changes.ttsText.newValue;
+    updateCharCount();
     chrome.storage.local.remove("ttsText");
   }
 });
 
-// 5. Play & Stop Listeners
+// 7. Play & Stop Listeners
 playBtn?.addEventListener("click", () => startPlayback());
 
 stopBtn?.addEventListener("click", () => {
@@ -197,7 +240,7 @@ function resetControls(statusMsg) {
   if (statusText) statusText.textContent = statusMsg;
 }
 
-// 6. Progress Listener
+// 8. Progress Listener
 chrome.runtime.onMessage.addListener((msg) => {
   if (msg.type === "TTS_PROGRESS") {
     if (statusDot) statusDot.className = "status-dot busy";
@@ -224,7 +267,7 @@ chrome.runtime.onMessage.addListener((msg) => {
   }
 });
 
-// 7. Reset Engine Action
+// 9. Reset Engine Action
 resetGpuBtn?.addEventListener("click", () => {
   if (statusText) statusText.textContent = "Resetting GPU process...";
   if (statusDot) statusDot.className = "status-dot busy";
