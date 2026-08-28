@@ -9,7 +9,7 @@ let isCancelled = false;
 let isGenerating = false;
 let generationId = 0;
 
-const ttsWorker = new Worker("dist/worker.js");
+const ttsWorker = new Worker("dist/worker.js", { type: "module" });
 
 function getAudioContext() {
   if (!audioCtx || audioCtx.state === "closed") {
