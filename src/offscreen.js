@@ -9,6 +9,19 @@ let isCancelled = false;
 let isGenerating = false;
 let generationId = 0;
 
+/** Last synthesis parameters — used to detect cache hits for instant replay */
+let lastSynthParams = null;
+
+// Send a heartbeat every 20 seconds to prevent service worker hibernation
+setInterval(() => {
+  chrome.runtime.sendMessage({ type: 'HEARTBEAT' }).catch(() => {});
+}, 20000);
+
+/** Pre-buffering: collect first N chunks before scheduling playback to prevent audio gaps */
+const PRE_BUFFER_THRESHOLD = 3;
+let chunksReceived = 0;
+let pendingSchedule = [];
+
 const ttsWorker = new Worker("dist/worker.js", { type: "module" });
 
 function getAudioContext() {
@@ -44,6 +57,10 @@ function scheduleAudioBuffer(audioBuffer) {
   };
 }
 
+/**
+ * Stop current audio playback. Does NOT clear the audio buffer cache
+ * so that replay can re-use previously generated audio.
+ */
 function stopPlayback(broadcast = true) {
   isCancelled = true;
   isGenerating = false;
@@ -52,11 +69,11 @@ function stopPlayback(broadcast = true) {
     try {
       source.stop();
       source.disconnect();
-    } catch (_) {}
+    } catch (_) { }
   }
   activeSources = [];
-  collectedAudioBuffers = [];
-  
+  pendingSchedule = [];
+
   ttsWorker.postMessage({ type: "STOP_AUDIO" });
 
   if (broadcast) {
@@ -66,6 +83,29 @@ function stopPlayback(broadcast = true) {
       state: "stopped"
     });
   }
+}
+
+/**
+ * Flush any pending pre-buffer chunks and start playback.
+ * Called when the pre-buffer threshold is reached or when synthesis completes for short texts.
+ */
+function flushPendingSchedule() {
+  if (pendingSchedule.length === 0) return;
+
+  const ctx = getAudioContext();
+  if (ctx.state === "suspended") ctx.resume();
+  nextStartTime = ctx.currentTime;
+
+  for (const buf of pendingSchedule) {
+    scheduleAudioBuffer(buf);
+  }
+  pendingSchedule = [];
+
+  chrome.runtime.sendMessage({
+    type: "TTS_STATUS",
+    status: "Playing audio",
+    state: "playing"
+  });
 }
 
 function exportMergedWav(buffers, sampleRate = 24000) {
@@ -101,14 +141,14 @@ function exportMergedWav(buffers, sampleRate = 24000) {
 
 ttsWorker.onmessage = async (e) => {
   const msg = e.data;
-  
+
   // Forward status updates to background/UI
   if (msg.type === "TTS_STATUS" || msg.type === "TTS_PROGRESS") {
     if (!isCancelled && msg.generationId === generationId) {
       chrome.runtime.sendMessage(msg);
     }
   }
-  
+
   if (msg.type === "TTS_ERROR") {
     if (!isCancelled && msg.generationId === generationId) {
       isGenerating = false;
@@ -119,33 +159,48 @@ ttsWorker.onmessage = async (e) => {
       });
     }
   }
-  
+
   if (msg.type === "TTS_CHUNK_READY") {
     if (!isCancelled && msg.generationId === generationId) {
       const ctx = getAudioContext();
       if (ctx.state === "suspended") {
         await ctx.resume();
       }
-      
+
       const audioBuffer = await ctx.decodeAudioData(msg.arrayBuf);
       collectedAudioBuffers.push(audioBuffer);
-      scheduleAudioBuffer(audioBuffer);
-      
-      if (msg.isFirst) {
-        chrome.runtime.sendMessage({
-          type: "TTS_STATUS",
-          status: "Playing audio",
-          state: "playing"
-        });
+      chunksReceived++;
+
+      if (chunksReceived <= PRE_BUFFER_THRESHOLD) {
+        // Collect chunks until we have enough for a smooth start
+        pendingSchedule.push(audioBuffer);
+        if (chunksReceived === PRE_BUFFER_THRESHOLD) {
+          flushPendingSchedule();
+        }
+      } else {
+        // Past threshold — schedule immediately (GPU has a head start)
+        scheduleAudioBuffer(audioBuffer);
       }
     }
   }
-  
+
   if (msg.type === "TTS_COMPLETE") {
     if (!isCancelled && msg.generationId === generationId) {
       isGenerating = false;
+
+      // Flush remaining pre-buffer for short texts (fewer chunks than threshold)
+      if (pendingSchedule.length > 0) {
+        flushPendingSchedule();
+      }
+
       if (collectedAudioBuffers.length > 0) {
         chrome.runtime.sendMessage({ type: "TTS_AUDIO_READY" });
+      } else {
+        chrome.runtime.sendMessage({
+          type: "TTS_STATUS",
+          status: "Finished (no audio generated)",
+          state: "idle"
+        });
       }
     }
   }
@@ -158,21 +213,21 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   }
 
   if (msg.target !== "offscreen") return;
-  
+
   if (msg.type === "PARSE_HTML") {
     try {
       const parser = new DOMParser();
       const doc = parser.parseFromString(msg.html, "text/html");
       const reader = new Readability(doc, { maxElemsToParse: 5000 });
       const parsed = reader.parse();
-      
+
       if (parsed && parsed.textContent) {
         const cleanText = parsed.textContent
           .split("\n")
           .map((line) => line.trim())
           .filter((line) => line.length > 0)
           .join("\n\n");
-          
+
         sendResponse({
           title: parsed.title || msg.title || "",
           byline: parsed.byline || "",
@@ -193,35 +248,85 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   }
 
   if (msg.type === "PREWARM_MODEL") {
-    ttsWorker.postMessage({ type: "PREWARM_MODEL", model: msg.model || "nano" });
+    ttsWorker.postMessage({
+      type: "PREWARM_MODEL",
+      model: msg.model || "nano",
+      extensionBaseUrl: chrome.runtime.getURL("")
+    });
     sendResponse({ success: true });
     return true;
   }
 
   if (msg.type === "PLAY_TEXT") {
+    // ── Replay Cache Check ──────────────────────────────────────
+    // If the same text/voice/speed/model was already synthesized and we still
+    // have the audio buffers, replay instantly without re-synthesizing.
+    const incomingParams = {
+      text: msg.text,
+      voice: msg.voice,
+      speed: msg.speed,
+      model: msg.model
+    };
+
+    if (collectedAudioBuffers.length > 0 && lastSynthParams &&
+      lastSynthParams.text === incomingParams.text &&
+      lastSynthParams.voice === incomingParams.voice &&
+      lastSynthParams.speed === incomingParams.speed &&
+      lastSynthParams.model === incomingParams.model) {
+
+      // Cache hit — replay from stored buffers
+      stopPlayback(false);
+      isCancelled = false;
+
+      const ctx = getAudioContext();
+      if (ctx.state === "suspended") ctx.resume();
+      nextStartTime = ctx.currentTime;
+
+      for (const buf of collectedAudioBuffers) {
+        scheduleAudioBuffer(buf);
+      }
+
+      chrome.runtime.sendMessage({
+        type: "TTS_STATUS",
+        status: "Playing audio",
+        state: "playing"
+      });
+      chrome.runtime.sendMessage({ type: "TTS_AUDIO_READY" });
+
+      console.log("[KittenTTS Offscreen] Replaying from cache — no re-synthesis needed.");
+      sendResponse({ success: true, replayed: true });
+      return true;
+    }
+
+    // ── New Synthesis ───────────────────────────────────────────
     const thisGenId = ++generationId;
-    stopPlayback(false); // cancels previous
-    
+    stopPlayback(false);
+
     isCancelled = false;
     isGenerating = true;
-    
+    collectedAudioBuffers = [];  // Clear cache for new synthesis
+    chunksReceived = 0;
+    pendingSchedule = [];
+
+    lastSynthParams = incomingParams;
+
     const ctx = getAudioContext();
     if (ctx.state === "suspended") {
       ctx.resume();
     }
     nextStartTime = ctx.currentTime;
-    collectedAudioBuffers = [];
-    
-    // Kick off worker
+
+    // Kick off worker with extension base URL for local model resolution
     ttsWorker.postMessage({
       type: "PLAY_TEXT",
       text: msg.text,
       voice: msg.voice,
       speed: msg.speed,
       model: msg.model,
-      generationId: thisGenId
+      generationId: thisGenId,
+      extensionBaseUrl: chrome.runtime.getURL("")
     });
-    
+
     sendResponse({ success: true });
     return true;
   }

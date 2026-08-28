@@ -2,6 +2,19 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.3.0] - 2026-08-28
+
+### Bug Fixes
+- **Local model loading** — nano model now loads from the extension's bundled `models/` directory instead of downloading from HuggingFace on every use. Switched from the library's `textToSpeech()` convenience function to the direct `KittenTTSEngine` API (`engine.init()` → `engine.loadModel()` → `textToInputIds()` → `engine.generate()` → `float32ToWav()`). Micro/mini models still download from HuggingFace on first use (browser-cached after).
+- **Status message spam** — the library's `onProgress` callback was firing "Phonemizing…" and "Generating speech…" for every chunk, overwriting the percentage progress in the toast/sidepanel. Now only forwards engine init/load progress (useful on first run) and sends clean `TTS_PROGRESS` with percentage for subsequent chunks.
+- **Audio gaps between chunks** — added pre-buffering: the first 3 audio chunks are collected before playback starts, giving the GPU a head start. Previously, playback started immediately on the first chunk and could outrun synthesis, causing audible gaps mid-sentence when chunk boundaries fell within a sentence.
+
+### Improvements
+- **Replay cache** — pressing Play again with the same text/voice/speed/model instantly replays cached audio without re-synthesizing. The cache is invalidated when any parameter changes.
+- **Chunk size increase** — `MAX_CHUNK_LENGTH` raised from 200 → 350 characters (library supports up to 500). This keeps most scientific/complex sentences intact instead of splitting them mid-clause.
+- **Improved clause splitting** — long sentences are now split at semicolons/colons/dashes first, then commas, then word boundaries as a last resort (previously split on all punctuation equally).
+- **Reduced yield** — inter-chunk yield reduced from 60ms → 20ms to minimize synthesis pipeline latency.
+
 ## [1.2.0] - 2026-08-28
 
 ### Bug Fixes

@@ -23,7 +23,9 @@
     "storage",
     "offscreen",
     "activeTab",
-    "scripting"
+    "scripting",
+    "tabs",
+    "notifications"
   ],
   "optional_host_permissions": [
     "http://*/*",
@@ -60,5 +62,8 @@
   },
   "side_panel": {
     "default_path": "sidepanel.html"
+  },
+  "content_security_policy": {
+    "extension_pages": "script-src 'self' 'wasm-unsafe-eval'; object-src 'self'"
   }
 }

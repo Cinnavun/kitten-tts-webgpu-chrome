@@ -27,23 +27,45 @@ async function hasOffscreenDocument() {
   return false;
 }
 
-async function setupOffscreenDocument() {
-  if (await hasOffscreenDocument()) return;
-  await chrome.offscreen.createDocument({
-    url: OFFSCREEN_DOCUMENT_PATH,
-    reasons: [chrome.offscreen.Reason.AUDIO_PLAYBACK],
-    justification: "Synthesizing text with KittenTTS WebGPU"
-  });
+let creatingOffscreenPromise = null;
 
-  return new Promise((resolve) => {
-    const listener = (msg) => {
-      if (msg.type === "OFFSCREEN_READY") {
-        chrome.runtime.onMessage.removeListener(listener);
-        resolve();
-      }
-    };
-    chrome.runtime.onMessage.addListener(listener);
-  });
+async function setupOffscreenDocument() {
+  if (creatingOffscreenPromise) {
+    await creatingOffscreenPromise;
+    return;
+  }
+
+  if (await hasOffscreenDocument()) return;
+
+  creatingOffscreenPromise = (async () => {
+    try {
+      await chrome.offscreen.createDocument({
+        url: OFFSCREEN_DOCUMENT_PATH,
+        reasons: [chrome.offscreen.Reason.AUDIO_PLAYBACK],
+        justification: "Synthesizing text with KittenTTS WebGPU"
+      });
+
+      await new Promise((resolve) => {
+        const timeout = setTimeout(() => {
+          chrome.runtime.onMessage.removeListener(listener);
+          resolve();
+        }, 5000);
+
+        const listener = (msg) => {
+          if (msg.type === "OFFSCREEN_READY") {
+            clearTimeout(timeout);
+            chrome.runtime.onMessage.removeListener(listener);
+            resolve();
+          }
+        };
+        chrome.runtime.onMessage.addListener(listener);
+      });
+    } finally {
+      creatingOffscreenPromise = null;
+    }
+  })();
+  
+  return creatingOffscreenPromise;
 }
 
 let cachedPrefs = null;
@@ -85,7 +107,7 @@ async function dispatchPlayText(text) {
     type: "PLAY_TEXT",
     text,
     ...prefs
-  }).catch(() => {});
+  }).catch(() => { });
 }
 
 // 1. Toolbar Badge & Tooltip Manager
@@ -122,7 +144,19 @@ async function sendToastToActiveTab(payload) {
 
   try {
     const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
-    if (!tab?.id || isBlockedUrl(tab.url)) return;
+    if (!tab?.id) return;
+    
+    if (isBlockedUrl(tab.url)) {
+      if (payload.text && (payload.text.toLowerCase().includes("error") || payload.text.includes("Cannot extract"))) {
+        chrome.notifications.create({
+          type: "basic",
+          iconUrl: "icons/icon48.png",
+          title: "Kitten TTS Error",
+          message: payload.text
+        });
+      }
+      return;
+    }
 
     await chrome.scripting.executeScript({
       target: { tabId: tab.id },
@@ -130,7 +164,7 @@ async function sendToastToActiveTab(payload) {
         let toast = document.getElementById("__kitten_tts_toast");
         if (data.action === "remove") {
           if (toast) {
-            toast.style.opacity = "0";
+            if (toast.style) toast.style.opacity = "0";
             setTimeout(() => toast.remove(), 300);
           }
           return;
@@ -139,17 +173,19 @@ async function sendToastToActiveTab(payload) {
         if (!toast) {
           toast = document.createElement("div");
           toast.id = "__kitten_tts_toast";
-          toast.style.cssText = `
-            position: fixed; top: 16px; right: 16px; z-index: 2147483647;
-            background: #0f172a; color: #f8fafc; font-family: system-ui, sans-serif;
-            font-size: 12px; font-weight: 500; padding: 8px 14px; border-radius: 20px;
-            box-shadow: 0 4px 14px rgba(0,0,0,0.25); display: flex; align-items: center; gap: 10px;
-            border: 1px solid rgba(255,255,255,0.1); transition: opacity 0.2s ease, transform 0.2s ease;
-          `;
-          document.body.appendChild(toast);
+          if (toast.style) {
+            toast.style.cssText = `
+              position: fixed; top: 16px; right: 16px; z-index: 2147483647;
+              background: #0f172a; color: #f8fafc; font-family: system-ui, sans-serif;
+              font-size: 12px; font-weight: 500; padding: 8px 14px; border-radius: 20px;
+              box-shadow: 0 4px 14px rgba(0,0,0,0.25); display: flex; align-items: center; gap: 10px;
+              border: 1px solid rgba(255,255,255,0.1); transition: opacity 0.2s ease, transform 0.2s ease;
+            `;
+          }
+          if (document.body) document.body.appendChild(toast);
         }
 
-        toast.style.opacity = "1";
+        if (toast.style) toast.style.opacity = "1";
         toast.innerHTML = `
           <span>🐾 <strong>Kitten TTS:</strong> ${data.text}</span>
           <button id="__kitten_stop_btn" style="
@@ -165,17 +201,17 @@ async function sendToastToActiveTab(payload) {
       },
       args: [payload]
     });
-  } catch (_) {}
+  } catch (_) { }
 }
 
 async function openSidePanel(tab) {
   if (!tab) return;
   if (tab.id) {
     await chrome.sidePanel.open({ tabId: tab.id }).catch(async () => {
-      if (tab.windowId) await chrome.sidePanel.open({ windowId: tab.windowId }).catch(() => {});
+      if (tab.windowId) await chrome.sidePanel.open({ windowId: tab.windowId }).catch(() => { });
     });
   } else if (tab.windowId) {
-    await chrome.sidePanel.open({ windowId: tab.windowId }).catch(() => {});
+    await chrome.sidePanel.open({ windowId: tab.windowId }).catch(() => { });
   }
 }
 
@@ -196,7 +232,7 @@ async function runArticleExtractor(tab) {
   });
 
   let article = results?.[0]?.result;
-  
+
   if (article?.html) {
     await setupOffscreenDocument();
     article = await chrome.runtime.sendMessage({
@@ -206,7 +242,7 @@ async function runArticleExtractor(tab) {
       url: article.url
     });
   }
-  
+
   return article;
 }
 
@@ -236,7 +272,7 @@ chrome.runtime.onInstalled.addListener(() => {
   });
 
   if (chrome.sidePanel?.setPanelBehavior) {
-    chrome.sidePanel.setPanelBehavior({ openPanelOnActionClick: true }).catch(() => {});
+    chrome.sidePanel.setPanelBehavior({ openPanelOnActionClick: true }).catch(() => { });
   }
 });
 
@@ -263,7 +299,7 @@ chrome.contextMenus.onClicked.addListener(async (info, tab) => {
       }
     } catch (err) {
       updateActionBadge("error", "!", err.message);
-      await sendToastToActiveTab({ action: "remove" });
+      await sendToastToActiveTab({ text: `Error: ${err.message}` });
     }
   } else if (info.menuItemId === "page-open-panel-only") {
     await openSidePanel(tab);
@@ -281,12 +317,18 @@ chrome.commands.onCommand.addListener(async (command, tab) => {
       }
     } catch (err) {
       updateActionBadge("error", "!", err.message);
+      await sendToastToActiveTab({ text: `Error: ${err.message}` });
     }
   }
 });
 
 // 6. Global Message Router (Updates Badge & In-Page Toast from Offscreen progress)
 chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
+  if (msg.type === "HEARTBEAT") {
+    // Keeps service worker alive
+    return;
+  }
+
   if (msg.type === "TTS_PROGRESS") {
     updateActionBadge("loading", `${msg.percent}%`, `Synthesizing audio: ${msg.percent}%`);
     sendToastToActiveTab({ text: `Synthesizing: ${msg.percent}% (${msg.current}/${msg.total})` });
@@ -316,13 +358,13 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     (async () => {
       try {
         if (await hasOffscreenDocument()) {
-          await chrome.offscreen.closeDocument().catch(() => {});
+          await chrome.offscreen.closeDocument().catch(() => { });
         }
         if ("caches" in self) {
           const keys = await caches.keys();
           await Promise.all(keys.map((k) => caches.delete(k)));
         }
-        await chrome.storage.local.remove(["ttsText"]).catch(() => {});
+        await chrome.storage.local.remove(["ttsText"]).catch(() => { });
         updateActionBadge("idle");
         sendToastToActiveTab({ action: "remove" });
         await setupOffscreenDocument();

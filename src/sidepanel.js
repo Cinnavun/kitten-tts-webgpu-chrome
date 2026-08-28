@@ -149,19 +149,14 @@ extractArticleBtn?.addEventListener("click", async () => {
     if (statusText)
       statusText.textContent = "Checking page access permissions...";
 
-    const hasPermission = await chrome.permissions.contains({
+    const granted = await chrome.permissions.request({
       origins: ["http://*/*", "https://*/*"],
     });
 
-    if (!hasPermission) {
-      const granted = await chrome.permissions.request({
-        origins: ["http://*/*", "https://*/*"],
-      });
-      if (!granted) {
-        if (statusText)
-          statusText.textContent = "Permission denied. Cannot scan page.";
-        return;
-      }
+    if (!granted) {
+      if (statusText)
+        statusText.textContent = "Permission denied. Cannot scan page.";
+      return;
     }
 
     if (statusText)
@@ -259,8 +254,8 @@ function resetControls(statusMsg) {
 chrome.runtime.onMessage.addListener((msg) => {
   if (msg.type === "TTS_PROGRESS") {
     statusDot.className = "status-dot busy";
-    progressContainer.style.display = "block";
-    progressFill.style.width = `${msg.percent}%`;
+    if (progressContainer) progressContainer.style.display = "block";
+    if (progressFill) progressFill.style.width = `${msg.percent}%`;
     statusText.textContent = `Synthesizing audio... ${msg.percent}%`;
     stopBtn.disabled = false;
   } else if (msg.type === "TTS_STATUS") {
