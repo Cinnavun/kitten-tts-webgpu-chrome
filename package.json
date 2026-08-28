@@ -4,8 +4,8 @@
   "description": "Kitten TTS WebGPU Extension",
   "main": "background.js",
   "scripts": {
-    "build": "esbuild src/sidepanel.js src/offscreen.js src/worker.js src/extractor.js src/textpreprocessor.js --bundle --format=esm --outdir=dist",
-    "watch": "esbuild src/sidepanel.js src/offscreen.js src/worker.js src/extractor.js src/textpreprocessor.js --bundle --format=esm --outdir=dist --watch"
+    "build": "esbuild src/sidepanel.js src/offscreen.js src/worker.js src/extractor.js src/textpreprocessor.js --bundle --format=iife --outdir=dist",
+    "watch": "esbuild src/sidepanel.js src/offscreen.js src/worker.js src/extractor.js src/textpreprocessor.js --bundle --format=iife --outdir=dist --watch"
   },
   "dependencies": {
     "@mozilla/readability": "^0.6.0",
