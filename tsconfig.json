@@ -1,10 +1,10 @@
 {
   "compilerOptions": {
-    "target": "ES2022",
-    "module": "ES2022",
+    "target": "ES2024",
+    "module": "esnext",
     "moduleResolution": "bundler",
     "lib": [
-      "ES2022",
+      "ES2024",
       "DOM",
       "DOM.Iterable",
       "WebWorker"
@@ -15,6 +15,7 @@
     "allowJs": true,
     /* Strictness — enough to catch real bugs without requiring full type annotations */
     "strict": false,
+    "skipLibCheck": true,
     "noImplicitAny": false,
     "strictNullChecks": true,
     "noUnusedLocals": false,
@@ -23,7 +24,8 @@
     "allowImportingTsExtensions": false,
     /* Needed for chrome.* globals */
     "types": [
-      "chrome"
+      "chrome",
+      "@webgpu/types"
     ]
   },
   "include": [
@@ -31,7 +33,7 @@
     "background.js"
   ],
   "exclude": [
-    "node_modules",
-    "dist"
+    "./node_modules",
+    "./dist"
   ]
 }

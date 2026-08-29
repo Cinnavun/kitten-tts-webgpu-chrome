@@ -1,19 +1,36 @@
-const themeSelect = document.getElementById("themeSelect");
-const extractArticleBtn = document.getElementById("extractArticleBtn");
-const voiceSelect = document.getElementById("voiceSelect");
-const modelSelect = document.getElementById("modelSelect");
-const speedInput = document.getElementById("speedInput");
+/** @type {HTMLSelectElement | null} */
+const themeSelect = document.querySelector("#themeSelect");
+/** @type {HTMLButtonElement | null} */
+const extractArticleBtn = document.querySelector("#extractArticleBtn");
+/** @type {HTMLSelectElement | null} */
+const voiceSelect = document.querySelector("#voiceSelect");
+/** @type {HTMLSelectElement | null} */
+const modelSelect = document.querySelector("#modelSelect");
+/** @type {HTMLInputElement | null} */
+const speedInput = document.querySelector("#speedInput");
+/** @type {HTMLElement | null} */
 const speedValue = document.getElementById("speedValue");
-const textInput = document.getElementById("textInput");
-const clearBtn = document.getElementById("clearBtn");
-const playBtn = document.getElementById("playBtn");
-const stopBtn = document.getElementById("stopBtn");
-const downloadBtn = document.getElementById("downloadBtn");
+/** @type {HTMLTextAreaElement | null} */
+const textInput = document.querySelector("#textInput");
+/** @type {HTMLButtonElement | null} */
+const clearBtn = document.querySelector("#clearBtn");
+/** @type {HTMLButtonElement | null} */
+const playBtn = document.querySelector("#playBtn");
+/** @type {HTMLButtonElement | null} */
+const stopBtn = document.querySelector("#stopBtn");
+/** @type {HTMLButtonElement | null} */
+const downloadBtn = document.querySelector("#downloadBtn");
+/** @type {HTMLElement | null} */
 const statusDot = document.getElementById("statusDot");
+/** @type {HTMLElement | null} */
 const statusText = document.getElementById("statusText");
+/** @type {HTMLElement | null} */
 const progressContainer = document.getElementById("progressContainer");
+/** @type {HTMLElement | null} */
 const progressFill = document.getElementById("progressFill");
-const resetGpuBtn = document.getElementById("resetGpuBtn");
+/** @type {HTMLButtonElement | null} */
+const resetGpuBtn = document.querySelector("#resetGpuBtn");
+/** @type {HTMLElement | null} */
 const charCount = document.getElementById("charCount");
 
 // Debug panel DOM refs (populated in section 10)
@@ -55,8 +72,10 @@ chrome.storage.local.get("preferredTheme", (data) => {
 });
 
 themeSelect?.addEventListener("change", (e) => {
-  chrome.storage.local.set({ preferredTheme: e.target.value });
-  applyTheme(e.target.value);
+  const target = /** @type {HTMLSelectElement} */ (e.target);
+  if (!target) return;
+  chrome.storage.local.set({ preferredTheme: target.value });
+  applyTheme(target.value);
 });
 
 // 2. Load Saved Preferences (voice, model, speed)

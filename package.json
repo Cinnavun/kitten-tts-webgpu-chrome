@@ -17,12 +17,11 @@
   },
   "devDependencies": {
     "@types/chrome": "^0.0.320",
+    "@webgpu/types": "^0.1.72",
     "esbuild": "^0.28.1",
     "typescript": "^5.8.3"
   },
   "allowScripts": {
-    "esbuild@0.28.2": true,
-    "@mozilla/readability@0.6.0": true,
-    "kitten-tts-webgpu@0.1.1": true
+    "esbuild@0.28.2": true
   }
 }

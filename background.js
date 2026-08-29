@@ -165,7 +165,7 @@ async function sendToastToActiveTab(payload) {
         if (data.action === "remove") {
           if (toast) {
             if (toast.style) toast.style.opacity = "0";
-            setTimeout(() => toast.remove(), 300);
+            setTimeout(() => toast?.remove(), 300);
           }
           return;
         }
