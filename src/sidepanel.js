@@ -34,12 +34,18 @@ const resetGpuBtn = document.querySelector("#resetGpuBtn");
 const charCount = document.getElementById("charCount");
 
 // Debug panel DOM refs (populated in section 10)
-const debugPanel = document.getElementById("debugPanel");
-const debugToggle = document.getElementById("debugToggle");
+/** @type {HTMLDetailsElement | null} */
+const debugPanel = document.querySelector("#debugPanel");
+/** @type {HTMLInputElement | null} */
+const debugToggle = document.querySelector("#debugToggle");
+/** @type {HTMLElement | null} */
 const debugLog = document.getElementById("debugLog");
+/** @type {HTMLElement | null} */
 const debugEntryCount = document.getElementById("debugEntryCount");
-const debugClearBtn = document.getElementById("debugClearBtn");
-const debugCopyBtn = document.getElementById("debugCopyBtn");
+/** @type {HTMLButtonElement | null} */
+const debugClearBtn = document.querySelector("#debugClearBtn");
+/** @type {HTMLButtonElement | null} */
+const debugCopyBtn = document.querySelector("#debugCopyBtn");
 /** @type {Array<{ tag: string, data: unknown, ts: number }>} */
 let debugEntries = [];
 
@@ -284,13 +290,13 @@ function resetControls(statusMsg) {
   const port = chrome.runtime.connect({ name: "tts-ui" });
   port.onMessage.addListener((msg) => {
     if (msg.type === "TTS_PROGRESS") {
-      statusDot.className = "status-dot busy";
+      if (statusDot) statusDot.className = "status-dot busy";
       if (progressContainer) progressContainer.style.display = "block";
       requestAnimationFrame(() => {
         if (progressFill) progressFill.style.width = `${msg.percent}%`;
-        statusText.textContent = `Synthesizing audio... ${msg.percent}%`;
+        if (statusText) statusText.textContent = `Synthesizing audio... ${msg.percent}%`;
       });
-      stopBtn.disabled = false;
+      if (stopBtn) stopBtn.disabled = false;
     } else if (msg.type === "TTS_STATUS") {
       if (msg.state === "idle") {
         resetControls("Finished playing.");
@@ -299,13 +305,13 @@ function resetControls(statusMsg) {
       } else if (msg.state === "error") {
         resetControls(msg.status || "Error occurred");
       } else if (msg.state === "playing") {
-        statusText.textContent = "Playing audio...";
-        statusDot.className = "status-dot playing";
+        if (statusText) statusText.textContent = "Playing audio...";
+        if (statusDot) statusDot.className = "status-dot playing";
       } else if (msg.state === "busy") {
-        statusText.textContent = msg.status;
+        if (statusText) statusText.textContent = msg.status;
       }
     } else if (msg.type === "TTS_AUDIO_READY") {
-      downloadBtn.style.display = "block";
+      if (downloadBtn) downloadBtn.style.display = "block";
     } else if (msg.type === "TTS_DEBUG_LOG") {
       // Append to in-panel debug log if the panel exists
       if (debugPanel && debugLog) {

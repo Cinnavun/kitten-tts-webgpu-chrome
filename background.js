@@ -20,8 +20,8 @@ async function hasOffscreenDocument() {
     });
     return contexts.length > 0;
   }
-  if (typeof self !== "undefined" && self.clients) {
-    const matchedClients = await self.clients.matchAll();
+  if (typeof self !== "undefined" && /** @type {any} */ (self).clients) {
+    const matchedClients = await /** @type {any} */ (self).clients.matchAll();
     return matchedClients.some((c) => c.url.includes(OFFSCREEN_DOCUMENT_PATH));
   }
   return false;
@@ -48,14 +48,14 @@ async function setupOffscreenDocument() {
       await new Promise((resolve) => {
         const timeout = setTimeout(() => {
           chrome.runtime.onMessage.removeListener(listener);
-          resolve();
+          resolve(undefined);
         }, 5000);
 
         const listener = (msg) => {
           if (msg.type === "OFFSCREEN_READY") {
             clearTimeout(timeout);
             chrome.runtime.onMessage.removeListener(listener);
-            resolve();
+            resolve(undefined);
           }
         };
         chrome.runtime.onMessage.addListener(listener);
@@ -228,7 +228,7 @@ async function runArticleExtractor(tab) {
 
   const results = await chrome.scripting.executeScript({
     target: { tabId: tab.id },
-    func: () => window.__kittenArticleExtractor?.()
+    func: () => /** @type {any} */ (window).__kittenArticleExtractor?.()
   });
 
   let article = results?.[0]?.result;

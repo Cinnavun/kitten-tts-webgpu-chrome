@@ -1,6 +1,6 @@
 // src/extractor.js
 
-window.__kittenArticleExtractor = function () {
+/** @type {any} */ (window).__kittenArticleExtractor = function () {
   // 1. If text is highlighted, prioritize selection
   const selection = window.getSelection()?.toString().trim();
   if (selection && selection.length > 10) {
