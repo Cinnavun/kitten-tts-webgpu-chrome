@@ -131,6 +131,25 @@
       </div>
     </details>
 
+    <!-- Debug Panel (shown when KITTEN_DEBUG is enabled) -->
+    <details id="debugPanel" class="debug-panel">
+      <summary>
+        <span>🐞 Debug</span>
+        <label class="debug-toggle" title="Enable verbose logging in DevTools console and here">
+          <input type="checkbox" id="debugToggle" />
+          <span class="debug-toggle-label">Enable debug logging</span>
+        </label>
+      </summary>
+      <div class="debug-body">
+        <div class="debug-toolbar">
+          <button id="debugClearBtn" class="clear-btn">Clear</button>
+          <button id="debugCopyBtn" class="clear-btn">Copy</button>
+          <span id="debugEntryCount" class="debug-count">0 entries</span>
+        </div>
+        <pre id="debugLog" class="debug-log">-- no log entries yet --</pre>
+      </div>
+    </details>
+
     <script type="module" src="dist/sidepanel.js"></script>
   </body>
 </html>

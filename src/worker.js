@@ -1,5 +1,6 @@
 import { KittenTTSEngine, textToInputIds, float32ToWav } from "kitten-tts-webgpu";
 import { TextPreprocessor } from "./textpreprocessor.js";
+import { dbg } from "./debugLogger.js";
 
 const preprocessor = new TextPreprocessor();
 
@@ -101,10 +102,14 @@ function chunkText(text) {
     rawSentences = text.match(/[^.!?\n]+[.!?\n]+|[^.!?\n]+$/g)?.map((s) => s.trim()) || [text];
   }
 
+  dbg("chunkText.rawSentences", { count: rawSentences.length, sentences: rawSentences });
+
   // Preprocess each sentence individually to avoid regex catastrophic backtracking on huge strings
   const sentences = rawSentences
     .map(s => preprocessor.process(s))
     .filter(s => s && /[a-zA-Z0-9]/.test(s));
+
+  dbg("chunkText.preprocessed", { count: sentences.length, sentences });
 
   // Library supports up to ~500 chars, but >250 can freeze some WebGPU implementations
   const MAX_CHUNK_LENGTH = 200;
@@ -166,7 +171,9 @@ function chunkText(text) {
     }
   }
 
-  return finalChunks.filter((c) => c && /[a-zA-Z0-9]/.test(c));
+  const result = finalChunks.filter((c) => c && /[a-zA-Z0-9]/.test(c));
+  dbg("chunkText.finalChunks", { count: result.length, chunks: result });
+  return result;
 }
 
 // ─── Synthesis ─────────────────────────────────────────────────────
@@ -222,6 +229,8 @@ self.onmessage = async (e) => {
     isCancelled = false;
     const { text, voice, speed, model, generationId } = msg;
 
+    dbg("PLAY_TEXT.received", { charCount: text.length, voice, speed, model, preview: text.slice(0, 200) });
+
     try {
       const chunks = chunkText(text);
       if (chunks.length === 0) {
@@ -256,6 +265,7 @@ self.onmessage = async (e) => {
         });
 
         try {
+          dbg("synthesize.chunk", { index: i, total: chunks.length, chunk });
           const blob = await synthesizeWithTimeout(
             engine, chunk, voice || "Jasper", speed || 1.0
           );
@@ -264,6 +274,7 @@ self.onmessage = async (e) => {
 
           if (blob) {
             const arrayBuf = await blob.arrayBuffer();
+            dbg("synthesize.chunkDone", { index: i, byteLength: arrayBuf.byteLength });
             self.postMessage(
               { type: "TTS_CHUNK_READY", arrayBuf, chunkIndex: i, isFirst: (i === 0), generationId },
               [arrayBuf]

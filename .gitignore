@@ -4,7 +4,7 @@ dist/*js
 dist/*
 gitignore/kittenttswebgpuscripts.txt
 gitignore/combined_code.txt
-
+gitignore\*
 workflow.bat
 .gitignore
 dist/sidepanel.js
@@ -18,3 +18,4 @@ node_modules/.package-lock.json
 .agents/rules/workspace-rules.md
 .gitignore
 Concatenate.ps1
+.vscode/settings.json

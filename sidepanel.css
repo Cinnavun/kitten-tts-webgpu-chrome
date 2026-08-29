@@ -342,4 +342,71 @@
       .attr-item a:hover {
         text-decoration: underline;
       }
-    
+
+      /* ── Debug Panel ── */
+      .debug-panel {
+        margin: 8px 0 4px;
+        border: 1px solid var(--card-border);
+        border-radius: 10px;
+        background: var(--card-bg);
+        overflow: hidden;
+      }
+      .debug-panel > summary {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        padding: 10px 14px;
+        cursor: pointer;
+        font-size: 12px;
+        font-weight: 600;
+        color: var(--text-muted);
+        list-style: none;
+        user-select: none;
+      }
+      .debug-panel > summary::-webkit-details-marker { display: none; }
+      .debug-panel > summary:hover { color: var(--text-main); }
+      .debug-toggle {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        cursor: pointer;
+        font-weight: 400;
+        font-size: 11px;
+      }
+      .debug-toggle input[type="checkbox"] {
+        width: 14px;
+        height: 14px;
+        accent-color: var(--accent);
+        cursor: pointer;
+      }
+      .debug-toggle-label { color: var(--text-muted); }
+      .debug-body {
+        border-top: 1px solid var(--card-border);
+        padding: 8px 10px;
+      }
+      .debug-toolbar {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        margin-bottom: 6px;
+      }
+      .debug-count {
+        margin-left: auto;
+        font-size: 10px;
+        color: var(--text-sub);
+      }
+      .debug-log {
+        background: var(--input-bg);
+        border: 1px solid var(--input-border);
+        border-radius: 6px;
+        padding: 8px 10px;
+        font-family: "Fira Code", "Cascadia Code", "Consolas", monospace;
+        font-size: 10px;
+        line-height: 1.5;
+        color: var(--text-muted);
+        max-height: 260px;
+        overflow-y: auto;
+        white-space: pre-wrap;
+        word-break: break-all;
+        margin: 0;
+      }

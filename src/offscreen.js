@@ -1,5 +1,23 @@
 // src/offscreen.js
 import { Readability } from "@mozilla/readability";
+import { dbg } from "./debugLogger.js";
+
+/**
+ * Debug helper for the offscreen context.
+ * Calls dbg() (→ DevTools console) AND portSend()s the event so it
+ * appears in the sidepanel debug panel alongside worker events.
+ * @param {string} tag
+ * @param {unknown} [data]
+ */
+function offscreenDbg(tag, data) {
+  dbg(tag, data);
+  try {
+    const serialised = JSON.parse(JSON.stringify(data ?? null));
+    portSend({ type: "TTS_DEBUG_LOG", tag, data: serialised, ts: Date.now() });
+  } catch (_) {
+    portSend({ type: "TTS_DEBUG_LOG", tag, data: String(data), ts: Date.now() });
+  }
+}
 
 let audioCtx = null;
 let nextStartTime = 0;
@@ -167,6 +185,12 @@ function exportMergedWav(buffers, sampleRate = 24000) {
 ttsWorker.onmessage = async (e) => {
   const msg = e.data;
 
+  // Forward debug log events from the worker to the sidepanel port
+  if (msg.type === "TTS_DEBUG_LOG") {
+    portSend(msg);
+    return;
+  }
+
   // Forward status updates to background/UI over the persistent port
   if (msg.type === "TTS_STATUS" || msg.type === "TTS_PROGRESS") {
     if (!isCancelled && msg.generationId === generationId) {
@@ -253,6 +277,14 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
           .filter((line) => line.length > 0)
           .join("\n\n");
 
+        offscreenDbg("readability.parsed", {
+          title: parsed.title,
+          byline: parsed.byline,
+          rawLength: parsed.textContent.length,
+          cleanLength: cleanText.length,
+          preview: cleanText.slice(0, 400)
+        });
+
         sendResponse({
           title: parsed.title || msg.title || "",
           byline: parsed.byline || "",
@@ -260,9 +292,11 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
         });
       } else {
         // Fallback to body text
+        const fallbackText = doc.body?.innerText?.trim() || "";
+        offscreenDbg("readability.fallback", { length: fallbackText.length, preview: fallbackText.slice(0, 200) });
         sendResponse({
           title: msg.title || "",
-          text: doc.body?.innerText?.trim() || ""
+          text: fallbackText
         });
       }
     } catch (err) {

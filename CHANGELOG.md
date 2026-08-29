@@ -2,6 +2,11 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.3.1] - 2026-08-28
+
+### Bug Fixes
+- **Missing spaces at sentence boundaries** — When Readability strips HTML block elements (`<p>`, `<div>`), adjacent sentences can fuse without whitespace (e.g., "this.And"), causing TTS to read the period literally as "this-DOT-And". Added `fixMissingSentenceSpacing()` to the text preprocessor pipeline that detects `(word)(punctuation)(CapitalLetter)` patterns and inserts a space. URLs, emails, abbreviations (Mr., Dr., etc.), decimal numbers, and dotted identifiers (U.S.A.) are shielded from modification. Runs early in the pipeline before URL removal so URLs can be properly detected and protected.
+
 ## [1.3.0] - 2026-08-28
 
 ### Bug Fixes

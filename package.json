@@ -7,14 +7,18 @@
     "build:esm": "esbuild src/worker.js --bundle --format=esm --sourcemap=inline --outdir=dist",
     "build:iife": "esbuild src/sidepanel.js src/offscreen.js src/extractor.js --bundle --format=iife --sourcemap=inline --outdir=dist",
     "build:assets": "node -e \"fs.copyFileSync('assets/espeak-en-dict.tsv', 'dist/espeak-en-dict.tsv'); fs.copyFileSync('assets/en_rules', 'dist/en_rules')\"",
-    "build": "npm run build:esm && npm run build:iife && npm run build:assets"
+    "build": "npm run build:esm && npm run build:iife && npm run build:assets",
+    "check": "tsc --noEmit",
+    "check:watch": "tsc --noEmit --watch"
   },
   "dependencies": {
     "@mozilla/readability": "^0.6.0",
     "kitten-tts-webgpu": "^0.1.1"
   },
   "devDependencies": {
-    "esbuild": "^0.28.1"
+    "@types/chrome": "^0.0.320",
+    "esbuild": "^0.28.1",
+    "typescript": "^5.8.3"
   },
   "allowScripts": {
     "esbuild@0.28.2": true,

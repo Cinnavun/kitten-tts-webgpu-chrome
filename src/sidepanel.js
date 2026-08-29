@@ -16,6 +16,16 @@ const progressFill = document.getElementById("progressFill");
 const resetGpuBtn = document.getElementById("resetGpuBtn");
 const charCount = document.getElementById("charCount");
 
+// Debug panel DOM refs (populated in section 10)
+const debugPanel = document.getElementById("debugPanel");
+const debugToggle = document.getElementById("debugToggle");
+const debugLog = document.getElementById("debugLog");
+const debugEntryCount = document.getElementById("debugEntryCount");
+const debugClearBtn = document.getElementById("debugClearBtn");
+const debugCopyBtn = document.getElementById("debugCopyBtn");
+/** @type {Array<{ tag: string, data: unknown, ts: number }>} */
+let debugEntries = [];
+
 // Utility for debouncing
 function debounce(func, timeout = 300) {
   let timer;
@@ -277,6 +287,18 @@ function resetControls(statusMsg) {
       }
     } else if (msg.type === "TTS_AUDIO_READY") {
       downloadBtn.style.display = "block";
+    } else if (msg.type === "TTS_DEBUG_LOG") {
+      // Append to in-panel debug log if the panel exists
+      if (debugPanel && debugLog) {
+        // Auto-open the panel on first event received
+        if (!debugPanel.open && debugEntries.length === 0) {
+          debugPanel.open = true;
+        }
+        debugEntries.push({ tag: msg.tag, data: msg.data, ts: msg.ts ?? Date.now() });
+        // Keep buffer bounded to 200 entries
+        if (debugEntries.length > 200) debugEntries.shift();
+        renderDebugLog();
+      }
     }
   });
   // Reconnect if the service worker restarts and drops the port
@@ -292,3 +314,72 @@ resetGpuBtn?.addEventListener("click", () => {
     resetControls(res?.message || "Engine reset.");
   });
 });
+
+
+// ── 10. Debug Panel ────────────────────────────────────────────────────────
+
+
+/** Render all debug entries into the log pre element */
+function renderDebugLog() {
+  if (!debugLog) return;
+  if (debugEntries.length === 0) {
+    debugLog.textContent = "-- no log entries yet --";
+    if (debugEntryCount) debugEntryCount.textContent = "0 entries";
+    return;
+  }
+  if (debugEntryCount) {
+    debugEntryCount.textContent = `${debugEntries.length} entr${debugEntries.length === 1 ? "y" : "ies"}`;
+  }
+  debugLog.textContent = debugEntries.map(({ tag, data, ts }) => {
+    const time = new Date(ts).toISOString().slice(11, 23); // HH:mm:ss.mmm
+    const payload = typeof data === "string" ? data : JSON.stringify(data, null, 2);
+    return `[${time}] ${tag}\n${payload}`;
+  }).join("\n\n");
+  // Auto-scroll to bottom
+  debugLog.scrollTop = debugLog.scrollHeight;
+}
+
+// Read initial debug flag state
+chrome.storage.local.get("KITTEN_DEBUG", (result) => {
+  if (debugToggle) debugToggle.checked = result?.KITTEN_DEBUG === true;
+});
+
+// Keep toggle in sync if changed elsewhere
+chrome.storage.onChanged.addListener((changes, area) => {
+  if (area === "local" && "KITTEN_DEBUG" in changes && debugToggle) {
+    debugToggle.checked = changes.KITTEN_DEBUG.newValue === true;
+  }
+});
+
+// Toggle handler — persist to storage (picked up by all contexts via onChanged)
+debugToggle?.addEventListener("change", () => {
+  chrome.storage.local.set({ KITTEN_DEBUG: debugToggle.checked });
+  if (debugToggle.checked && debugEntries.length === 0) {
+    if (debugLog) debugLog.textContent = "-- debug enabled: trigger a Play to see events --";
+  }
+});
+
+// Clear button
+debugClearBtn?.addEventListener("click", () => {
+  debugEntries = [];
+  renderDebugLog();
+});
+
+// Copy button — copies plain text to clipboard
+debugCopyBtn?.addEventListener("click", async () => {
+  const text = debugEntries.map(({ tag, data, ts }) => {
+    const time = new Date(ts).toISOString().slice(11, 23);
+    const payload = typeof data === "string" ? data : JSON.stringify(data, null, 2);
+    return `[${time}] ${tag}\n${payload}`;
+  }).join("\n\n");
+  try {
+    await navigator.clipboard.writeText(text || "-- empty --");
+    if (debugCopyBtn) {
+      debugCopyBtn.textContent = "Copied!";
+      setTimeout(() => { if (debugCopyBtn) debugCopyBtn.textContent = "Copy"; }, 1500);
+    }
+  } catch (_) {
+    /* clipboard not available */
+  }
+});
+

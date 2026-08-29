@@ -1,0 +1,37 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "ES2022",
+    "moduleResolution": "bundler",
+    "lib": [
+      "ES2022",
+      "DOM",
+      "DOM.Iterable",
+      "WebWorker"
+    ],
+    /* Type-check JS via JSDoc without emitting any files */
+    "checkJs": true,
+    "noEmit": true,
+    "allowJs": true,
+    /* Strictness — enough to catch real bugs without requiring full type annotations */
+    "strict": false,
+    "noImplicitAny": false,
+    "strictNullChecks": true,
+    "noUnusedLocals": false,
+    "noUnusedParameters": false,
+    /* Allow importing .js extensions (esbuild-compatible) */
+    "allowImportingTsExtensions": false,
+    /* Needed for chrome.* globals */
+    "types": [
+      "chrome"
+    ]
+  },
+  "include": [
+    "src/**/*.js",
+    "background.js"
+  ],
+  "exclude": [
+    "node_modules",
+    "dist"
+  ]
+}
