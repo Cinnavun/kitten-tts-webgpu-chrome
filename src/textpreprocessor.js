@@ -451,6 +451,89 @@ function expandContractions(text) {
   return out;
 }
 
+function expandSlang(text) {
+  const slang = [
+    // laughter / reactions
+    [/\blmao+\b/gi, "L M A O"],
+    [/\blmfao+\b/gi, "L M F A O"],
+    [/\brofl\b/gi, "rolling on the floor laughing"],
+    [/\blol+\b/gi, "L O L"],
+    [/\bomg\b/gi, "O M G"],
+    [/\bsmh\b/gi, "S M H"],
+    [/\bistg\b/gi, "I swear to god"],
+
+    // intensifiers / filler
+    [/\baf\b/gi, "A F"],
+    [/\basf\b/gi, "AS F"],
+    [/\bfr+\b/gi, "for real"],
+
+    // politeness / gratitude
+    [/\bpls\b/gi, "please"],
+    [/\bplz\b/gi, "please"],
+    [/\bthx\b/gi, "thanks"],
+    [/\btysm\b/gi, "thank you so much"],
+    [/\bty\b/gi, "thank you"],
+    [/\bnp\b/gi, "no problem"],
+    [/\byw\b/gi, "you're welcome"],
+
+    // affection
+    [/\bluv\b/gi, "love"],
+    [/\bily\b/gi, "I love you"],
+    [/\bilysm\b/gi, "I love you so much"],
+    [/\bbae\b/gi, "bay"],
+
+    // knowledge / opinion
+    [/\bidk\b/gi, "I D K"],
+    [/\bidc\b/gi, "I don't care"],
+    [/\btbh\b/gi, "T B H"],
+    [/\btbf\b/gi, "T B F"],
+    [/\bngl\b/gi, "not gonna lie"],
+    [/\bimo\b/gi, "I M O"],
+    [/\bimho\b/gi, "I M H O"],
+    [/\bafaik\b/gi, "as far as I know"],
+    [/\bikr\b/gi, "I know right"],
+
+    // logistics / time
+    [/\basap\b/gi, "A S A P"],
+    [/\bbrb\b/gi, "B R B"],
+    [/\bbrt\b/gi, "be right there"],
+    [/\bgtg\b/gi, "gotta go"],
+    [/\bg2g\b/gi, "got to go"],
+    [/\bttyl\b/gi, "T T Y L"],
+    [/\bttys\b/gi, "T T Y S"],
+    [/\bnvm\b/gi, "N V M"],
+    [/\bjk\b/gi, "jay kay"],
+    [/\bjw\b/gi, "just wondering"],
+    [/\blmk\b/gi, "lemme know"],
+    [/\bhmu\b/gi, "hit me up"],
+    [/\bfyi\b/gi, "F Y I"],
+    [/\bbtw\b/gi, "B T W"],
+    [/\beta\b/gi, "E T A"],
+
+    // questions
+    [/\bwyd\b/gi, "what you doing"],
+    [/\bhbu\b/gi, "H B U"],
+    [/\bwbu\b/gi, "whatta bout you"],
+    [/\bwdyt\b/gi, "what do you think"],
+
+    // life / real talk
+    [/\birl\b/gi, "I R L"],
+    [/\bnbd\b/gi, "N B D"],
+    [/\btmi\b/gi, "T M I"],
+    [/\btldr\b/gi, "T L D R"],
+    [/\bsrsly\b/gi, "seriously"],
+    [/\btho\b/gi, "tho"],
+    [/\biykyk\b/gi, "if you know you know"],
+    [/\bBFFL\b/gi, "Biffle"]
+  ];
+
+  let out = text;
+  for (const [pattern, replacement] of slang) {
+    out = out.replace(pattern, replacement);
+  }
+  return out;
+}
+
 /**
  * Merge remaining possessives into the base word so the TTS model
  * pronounces them naturally instead of splitting into "word" + "S".
@@ -530,6 +613,7 @@ export class TextPreprocessor {
       replace_numbers: true,
       replace_floats: true,
       expand_contractions: false,
+      expand_slang: true,
       expand_model_names: true,
       expand_ordinals: true,
       expand_percentages: true,
@@ -577,6 +661,7 @@ export class TextPreprocessor {
     if (cfg.remove_hashtags) text = text.replace(RE_HASHTAG, "");
     if (cfg.remove_mentions) text = text.replace(RE_MENTION, "");
     text = normalizeQuotes(text);
+    if (cfg.expand_slang) text = expandSlang(text);
     if (cfg.expand_contractions) text = expandContractions(text);
     text = mergePossessives(text);
     if (cfg.expand_ip_addresses) text = expandIpAddresses(text);
@@ -601,7 +686,7 @@ export class TextPreprocessor {
     }
 
     if (cfg.remove_punctuation) text = text.replace(RE_PUNCT, " ");
-    
+
     text = expandAcronyms(text);
 
     if (cfg.lowercase) text = text.toLowerCase();

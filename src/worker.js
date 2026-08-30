@@ -129,7 +129,7 @@ function chunkText(text) {
   dbg("chunkText.preprocessed", { count: sentences.length, sentences });
 
   // Library supports up to ~500 chars, but >250 can freeze some WebGPU implementations
-  const MAX_CHUNK_LENGTH = 200;
+  const MAX_CHUNK_LENGTH = 380;
   const finalChunks = [];
 
   for (const sentence of sentences) {
@@ -159,7 +159,7 @@ function chunkText(text) {
                   finalChunks.push(part.trim());
                   currentWord = currentWord.substring(MAX_CHUNK_LENGTH);
                 }
-                
+
                 if (!currentWord) continue;
 
                 if ((wordBuf + " " + currentWord).trim().length > MAX_CHUNK_LENGTH) {
@@ -292,7 +292,7 @@ self.onmessage = async (e) => {
           if (blob) {
             const arrayBuf = await blob.arrayBuffer();
             dbg("synthesize.chunkDone", { index: i, byteLength: arrayBuf.byteLength });
-            
+
             let pauseAfter = 0;
             if (i < chunks.length - 1) {
               const chunkStr = chunk.trim();
