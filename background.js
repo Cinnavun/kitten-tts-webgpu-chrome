@@ -134,14 +134,8 @@ function updateActionBadge(state, text = "", tooltip = "") {
   }
 }
 
-// 2. In-Page Floating Toast UI (Injectable helper)
-let lastToastTime = 0;
-
+// 2. In-Page Floating Toast UI (via content script)
 async function sendToastToActiveTab(payload) {
-  const now = Date.now();
-  if (now - lastToastTime < 200 && payload.action !== "remove") return;
-  lastToastTime = now;
-
   try {
     const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
     if (!tab?.id) return;
@@ -158,48 +152,9 @@ async function sendToastToActiveTab(payload) {
       return;
     }
 
-    await chrome.scripting.executeScript({
-      target: { tabId: tab.id },
-      func: (data) => {
-        let toast = document.getElementById("__kitten_tts_toast");
-        if (data.action === "remove") {
-          if (toast) {
-            if (toast.style) toast.style.opacity = "0";
-            setTimeout(() => toast?.remove(), 300);
-          }
-          return;
-        }
-
-        if (!toast) {
-          toast = document.createElement("div");
-          toast.id = "__kitten_tts_toast";
-          if (toast.style) {
-            toast.style.cssText = `
-              position: fixed; top: 16px; right: 16px; z-index: 2147483647;
-              background: #0f172a; color: #f8fafc; font-family: system-ui, sans-serif;
-              font-size: 12px; font-weight: 500; padding: 8px 14px; border-radius: 20px;
-              box-shadow: 0 4px 14px rgba(0,0,0,0.25); display: flex; align-items: center; gap: 10px;
-              border: 1px solid rgba(255,255,255,0.1); transition: opacity 0.2s ease, transform 0.2s ease;
-            `;
-          }
-          if (document.body) document.body.appendChild(toast);
-        }
-
-        if (toast.style) toast.style.opacity = "1";
-        toast.innerHTML = `
-          <span>🐾 <strong>Kitten TTS:</strong> ${data.text}</span>
-          <button id="__kitten_stop_btn" style="
-            background: #ef4444; border: none; color: white; padding: 2px 8px;
-            border-radius: 10px; cursor: pointer; font-size: 11px; font-weight: 600;
-          ">⏹ Stop</button>
-        `;
-
-        document.getElementById("__kitten_stop_btn")?.addEventListener("click", () => {
-          chrome.runtime.sendMessage({ target: "offscreen", type: "STOP_AUDIO" });
-          toast.remove();
-        });
-      },
-      args: [payload]
+    await chrome.tabs.sendMessage(tab.id, {
+      type: "SHOW_TOAST",
+      payload
     });
   } catch (_) { }
 }
@@ -221,17 +176,15 @@ async function runArticleExtractor(tab) {
     throw new Error("Cannot extract from browser internal pages.");
   }
 
-  await chrome.scripting.executeScript({
-    target: { tabId: tab.id },
-    files: ["dist/extractor.js"]
+  const response = await chrome.tabs.sendMessage(tab.id, {
+    type: "EXTRACT_ARTICLE"
   });
 
-  const results = await chrome.scripting.executeScript({
-    target: { tabId: tab.id },
-    func: () => /** @type {any} */ (window).__kittenArticleExtractor?.()
-  });
+  if (response?.error) {
+    throw new Error(response.error);
+  }
 
-  let article = results?.[0]?.result;
+  let article = response?.result;
 
   if (article?.html) {
     await setupOffscreenDocument();
@@ -330,6 +283,14 @@ chrome.commands.onCommand.addListener(async (command, tab) => {
 let offscreenPort = null;   // the tts-stream port from offscreen.js
 let uiPort = null;          // the tts-ui port from sidepanel.js
 
+async function stopPlayback() {
+  const hasDoc = await hasOffscreenDocument();
+  if (hasDoc) {
+    await chrome.offscreen.closeDocument().catch(() => {});
+  }
+  updateActionBadge("idle");
+}
+
 /**
  * Handle a progress/status message arriving over the tts-stream port.
  * Updates the action badge, the in-page toast, and relays to the side panel.
@@ -346,12 +307,13 @@ function handleStreamMessage(msg) {
       updateActionBadge("playing", "▶", "Playing audio");
       sendToastToActiveTab({ text: "Playing audio" });
     } else if (msg.state === "idle" || msg.state === "stopped") {
-      updateActionBadge("idle");
+      stopPlayback();
       sendToastToActiveTab({ action: "remove" });
     } else if (msg.state === "error") {
       updateActionBadge("error", "!", msg.status);
       sendToastToActiveTab({ text: `Error: ${msg.status}` });
       setTimeout(() => sendToastToActiveTab({ action: "remove" }), 4000);
+      stopPlayback();
     } else if (msg.state === "busy") {
       updateActionBadge("loading", "...", msg.status);
       sendToastToActiveTab({ text: msg.status });
