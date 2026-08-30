@@ -1,6 +1,7 @@
 // src/offscreen.js
 import { Readability } from "@mozilla/readability";
 import { dbg } from "./debugLogger.js";
+import { saveAudio, getAudio } from "./db.js";
 
 /**
  * Debug helper for the offscreen context.
@@ -67,9 +68,20 @@ let pendingSchedule = [];
 
 const ttsWorker = new Worker("dist/worker.js", { type: "module" });
 
+let keepAliveOsc = null;
 function getAudioContext() {
   if (!audioCtx || audioCtx.state === "closed") {
     audioCtx = new AudioContext({ sampleRate: 24000 });
+    
+    // Play a continuous silent oscillator to keep the AudioContext "active".
+    // This prevents Chrome from terminating the offscreen document (AUDIO_PLAYBACK reason)
+    // if GPU synthesis takes longer than the current audio buffer and causes an underflow.
+    keepAliveOsc = audioCtx.createOscillator();
+    const gainNode = audioCtx.createGain();
+    gainNode.gain.value = 0.0001; // nearly silent, prevents Chrome zero-gain optimizations
+    keepAliveOsc.connect(gainNode);
+    gainNode.connect(audioCtx.destination);
+    keepAliveOsc.start();
   }
   return audioCtx;
 }
@@ -116,6 +128,13 @@ function stopPlayback(broadcast = true) {
   }
   activeSources = [];
   pendingSchedule = [];
+  
+  // DO NOT destroy keepAliveOsc here! It needs to run continuously
+  // for the lifetime of the AudioContext.
+  
+  if (audioCtx && audioCtx.state !== "closed") {
+    // We intentionally don't close the audioCtx so we can reuse it
+  }
 
   ttsWorker.postMessage({ type: "STOP_AUDIO" });
 
@@ -243,6 +262,12 @@ ttsWorker.onmessage = async (e) => {
       }
 
       if (collectedAudioBuffers.length > 0) {
+        if (lastSynthParams && lastSynthParams.cacheKey) {
+          const mergedBlob = exportMergedWav(collectedAudioBuffers, 24000);
+          saveAudio(lastSynthParams.cacheKey, mergedBlob).catch(err => {
+            console.warn("Failed to save audio to cache:", err);
+          });
+        }
         portSend({ type: "TTS_AUDIO_READY" });
       } else {
         portSend({
@@ -316,46 +341,49 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     return true;
   }
 
+  if (msg.type === "PLAY_CACHED") {
+    const thisGenId = ++generationId;
+    stopPlayback(false);
+    isCancelled = false;
+    isGenerating = false;
+    collectedAudioBuffers = [];
+    chunksReceived = 0;
+    pendingSchedule = [];
+
+    (async () => {
+      try {
+        const blob = await getAudio(msg.cacheKey);
+        if (blob) {
+          const arrayBuf = await blob.arrayBuffer();
+          const ctx = getAudioContext();
+          if (ctx.state === "suspended") await ctx.resume();
+          nextStartTime = ctx.currentTime;
+          const audioBuffer = await ctx.decodeAudioData(arrayBuf);
+          scheduleAudioBuffer(audioBuffer);
+          
+          portSend({ type: "TTS_STATUS", status: "Playing audio", state: "playing" });
+          portSend({ type: "TTS_AUDIO_READY" });
+        } else {
+          portSend({ type: "TTS_STATUS", status: "Cache miss.", state: "error" });
+        }
+      } catch (err) {
+        console.error("Cache play error:", err);
+        portSend({ type: "TTS_STATUS", status: "Error playing cache.", state: "error" });
+      }
+    })();
+    
+    sendResponse({ success: true, replayed: true });
+    return true;
+  }
+
   if (msg.type === "PLAY_TEXT") {
-    // ── Replay Cache Check ──────────────────────────────────────
-    // If the same text/voice/speed/model was already synthesized and we still
-    // have the audio buffers, replay instantly without re-synthesizing.
     const incomingParams = {
       text: msg.text,
       voice: msg.voice,
       speed: msg.speed,
-      model: msg.model
+      model: msg.model,
+      cacheKey: msg.cacheKey
     };
-
-    if (collectedAudioBuffers.length > 0 && lastSynthParams &&
-      lastSynthParams.text === incomingParams.text &&
-      lastSynthParams.voice === incomingParams.voice &&
-      lastSynthParams.speed === incomingParams.speed &&
-      lastSynthParams.model === incomingParams.model) {
-
-      // Cache hit — replay from stored buffers
-      stopPlayback(false);
-      isCancelled = false;
-
-      const ctx = getAudioContext();
-      if (ctx.state === "suspended") ctx.resume();
-      nextStartTime = ctx.currentTime;
-
-      for (const buf of collectedAudioBuffers) {
-        scheduleAudioBuffer(buf);
-      }
-
-      chrome.runtime.sendMessage({
-        type: "TTS_STATUS",
-        status: "Playing audio",
-        state: "playing"
-      });
-      chrome.runtime.sendMessage({ type: "TTS_AUDIO_READY" });
-
-      console.log("[KittenTTS Offscreen] Replaying from cache — no re-synthesis needed.");
-      sendResponse({ success: true, replayed: true });
-      return true;
-    }
 
     // ── New Synthesis ───────────────────────────────────────────
     const thisGenId = ++generationId;
@@ -393,20 +421,6 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   if (msg.type === "STOP_AUDIO") {
     stopPlayback();
     sendResponse({ stopped: true });
-    return true;
-  }
-
-  if (msg.type === "GET_DOWNLOAD_BLOB") {
-    if (collectedAudioBuffers.length > 0) {
-      const mergedBlob = exportMergedWav(collectedAudioBuffers, 24000);
-      const reader = new FileReader();
-      reader.onloadend = () => {
-        sendResponse({ dataUrl: reader.result });
-      };
-      reader.readAsDataURL(mergedBlob);
-      return true;
-    }
-    sendResponse({ error: "No audio buffers available." });
     return true;
   }
 });

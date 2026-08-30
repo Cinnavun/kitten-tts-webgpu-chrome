@@ -1,5 +1,5 @@
 import { KittenTTSEngine, textToInputIds, float32ToWav } from "kitten-tts-webgpu";
-import { TextPreprocessor } from "./textpreprocessor.js";
+import { TextPreprocessor, ABBREVIATIONS } from "./textpreprocessor.js";
 import { dbg } from "./debugLogger.js";
 
 const preprocessor = new TextPreprocessor();
@@ -95,9 +95,26 @@ function chunkText(text) {
   let rawSentences = [];
   if (typeof Intl !== "undefined" && Intl.Segmenter) {
     const segmenter = new Intl.Segmenter("en", { granularity: "sentence" });
-    rawSentences = Array.from(segmenter.segment(text))
+    const segments = Array.from(segmenter.segment(text))
       .map((s) => s.segment.trim())
       .filter((s) => s.length > 0);
+
+    // Stitch sentences back together if the previous one ends with an abbreviation
+    let stitched = [];
+    for (let i = 0; i < segments.length; i++) {
+      let seg = segments[i];
+      if (stitched.length > 0) {
+        let prev = stitched[stitched.length - 1];
+        // Match a word followed by a period at the end of the previous segment
+        let match = prev.match(/([a-zA-Z]+)\.$/);
+        if (match && ABBREVIATIONS.has(match[1].toLowerCase())) {
+          stitched[stitched.length - 1] = prev + " " + seg;
+          continue;
+        }
+      }
+      stitched.push(seg);
+    }
+    rawSentences = stitched;
   } else {
     rawSentences = text.match(/[^.!?\n]+[.!?\n]+|[^.!?\n]+$/g)?.map((s) => s.trim()) || [text];
   }
@@ -229,7 +246,7 @@ self.onmessage = async (e) => {
     isCancelled = false;
     const { text, voice, speed, model, generationId } = msg;
 
-    dbg("PLAY_TEXT.received", { charCount: text.length, voice, speed, model, preview: text.slice(0, 200) });
+    dbg("PLAY_TEXT.received", { charCount: text.length, voice, speed, model, fullText: text });
 
     try {
       const chunks = chunkText(text);

@@ -124,7 +124,7 @@ const RE_DECADE = /\b(\d{1,3})0s\b/gi;
 const RE_LEAD_DEC = /(?<!\d)\.([\d])/g;
 
 // Common abbreviations that use periods — must not get spaces inserted after them
-const ABBREVIATIONS = new Set([
+export const ABBREVIATIONS = new Set([
   "mr", "mrs", "ms", "dr", "prof", "sr", "jr", "st", "vs", "etc", "inc",
   "ltd", "co", "corp", "dept", "univ", "est", "approx", "govt", "assn",
   "gen", "sgt", "cpl", "pvt", "capt", "lt", "col", "maj", "cmdr", "adm",

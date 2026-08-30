@@ -1,4 +1,5 @@
 // background.js
+import { generateCacheKey, getAudio } from './src/db.js';
 const OFFSCREEN_DOCUMENT_PATH = "offscreen.html";
 
 /** URLs that cannot be injected into or extracted from. */
@@ -100,14 +101,29 @@ async function getStoredPreferences() {
  * Eliminates the repeated setup → prefs → sendMessage pattern that was duplicated 3 times.
  */
 async function dispatchPlayText(text) {
-  await setupOffscreenDocument();
-  const prefs = await getStoredPreferences();
-  chrome.runtime.sendMessage({
-    target: "offscreen",
-    type: "PLAY_TEXT",
-    text,
-    ...prefs
-  }).catch(() => { });
+  const [_, prefs] = await Promise.all([
+    setupOffscreenDocument(),
+    getStoredPreferences()
+  ]);
+  
+  const cacheKey = await generateCacheKey(text, prefs.voice, prefs.speed, prefs.model);
+  const cachedBlob = await getAudio(cacheKey);
+
+  if (cachedBlob) {
+    chrome.runtime.sendMessage({
+      target: "offscreen",
+      type: "PLAY_CACHED",
+      cacheKey
+    }).catch(() => { });
+  } else {
+    chrome.runtime.sendMessage({
+      target: "offscreen",
+      type: "PLAY_TEXT",
+      text,
+      ...prefs,
+      cacheKey
+    }).catch(() => { });
+  }
 }
 
 // 1. Toolbar Badge & Tooltip Manager

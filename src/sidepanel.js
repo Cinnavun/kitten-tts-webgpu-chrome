@@ -1,3 +1,5 @@
+import { generateCacheKey, getAudio } from './db.js';
+
 /** @type {HTMLSelectElement | null} */
 const themeSelect = document.querySelector("#themeSelect");
 /** @type {HTMLButtonElement | null} */
@@ -263,17 +265,34 @@ const downloadAnchor = document.createElement("a");
 downloadAnchor.style.display = "none";
 document.body.appendChild(downloadAnchor);
 
-downloadBtn?.addEventListener("click", () => {
-  chrome.runtime.sendMessage(
-    { target: "offscreen", type: "GET_DOWNLOAD_BLOB" },
-    (res) => {
-      if (res?.dataUrl) {
-        downloadAnchor.href = res.dataUrl;
-        downloadAnchor.download = "kitten-tts-audio.wav";
-        downloadAnchor.click();
-      }
-    },
-  );
+downloadBtn?.addEventListener("click", async () => {
+  const text = (textInput?.value || "").trim();
+  const voice = voiceSelect?.value || "Jasper";
+  const speed = parseFloat(speedInput?.value || "1.0");
+  const model = modelSelect?.value || "nano";
+
+  if (!text) return;
+
+  try {
+    if (statusText) statusText.textContent = "Preparing download...";
+    const cacheKey = await generateCacheKey(text, voice, speed, model);
+    const blob = await getAudio(cacheKey);
+
+    if (blob) {
+      const url = URL.createObjectURL(blob);
+      downloadAnchor.href = url;
+      downloadAnchor.download = "kitten-tts-audio.wav";
+      downloadAnchor.click();
+      
+      // Clean up the object URL after a short delay
+      setTimeout(() => URL.revokeObjectURL(url), 1000);
+      if (statusText) statusText.textContent = "Download started.";
+    } else {
+      if (statusText) statusText.textContent = "Error: Audio not found in cache.";
+    }
+  } catch (err) {
+    if (statusText) statusText.textContent = `Download Error: ${err.message}`;
+  }
 });
 
 function resetControls(statusMsg) {
