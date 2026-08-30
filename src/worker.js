@@ -292,8 +292,19 @@ self.onmessage = async (e) => {
           if (blob) {
             const arrayBuf = await blob.arrayBuffer();
             dbg("synthesize.chunkDone", { index: i, byteLength: arrayBuf.byteLength });
+            
+            let pauseAfter = 0;
+            if (i < chunks.length - 1) {
+              const chunkStr = chunk.trim();
+              if (/[.!?]["')\]]*$/.test(chunkStr)) {
+                pauseAfter = 0.25;
+              } else if (/[,;:]["')\]]*$/.test(chunkStr)) {
+                pauseAfter = 0.1;
+              }
+            }
+
             self.postMessage(
-              { type: "TTS_CHUNK_READY", arrayBuf, chunkIndex: i, isFirst: (i === 0), generationId },
+              { type: "TTS_CHUNK_READY", arrayBuf, chunkIndex: i, isFirst: (i === 0), pauseAfter, generationId },
               [arrayBuf]
             );
           }

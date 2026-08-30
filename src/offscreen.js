@@ -33,71 +33,82 @@ let lastSynthParams = null;
 
 // Persistent port to background for progress/status — native MV3 keep-alive.
 // Reconnects automatically if the service worker was restarted.
-let bgPort = null;
+let port = null;
 
-function getBgPort() {
-  if (bgPort) return bgPort;
-  bgPort = chrome.runtime.connect({ name: "tts-stream" });
-  bgPort.onDisconnect.addListener(() => {
-    bgPort = null;
-    // Reconnect after a tick — the service worker may have been restarted
-    setTimeout(() => getBgPort(), 100);
+function connectPort() {
+  port = chrome.runtime.connect({ name: "tts-stream" });
+  port.onDisconnect.addListener(() => {
+    port = null;
+    // The service worker restarts automatically; reconnect so UI receives progress
+    setTimeout(connectPort, 200);
   });
-  return bgPort;
 }
-
-// Establish the port immediately on document load
-getBgPort();
+connectPort();
 
 /** Send a message over the persistent port, with a fallback reconnect. */
 function portSend(msg) {
+  if (!port) connectPort();
   try {
-    getBgPort().postMessage(msg);
-  } catch (_) {
-    bgPort = null;
-    setTimeout(() => {
-      try { getBgPort().postMessage(msg); } catch (_) {}
-    }, 150);
+    port.postMessage(msg);
+  } catch (e) {
+    console.warn("Port send failed, reconnecting...", e);
+    connectPort();
+    try { port.postMessage(msg); } catch (_) {}
   }
 }
 
 /** Pre-buffering: collect first N chunks before scheduling playback to prevent audio gaps */
-const PRE_BUFFER_THRESHOLD = 3;
+const PRE_BUFFER_THRESHOLD = 1;
 let chunksReceived = 0;
 let pendingSchedule = [];
 
 const ttsWorker = new Worker("dist/worker.js", { type: "module" });
 
 let keepAliveOsc = null;
+let audioUnlockPromise = null;
+
 function getAudioContext() {
   if (!audioCtx || audioCtx.state === "closed") {
     audioCtx = new AudioContext({ sampleRate: 24000 });
     
     // Play a continuous silent oscillator to keep the AudioContext "active".
-    // This prevents Chrome from terminating the offscreen document (AUDIO_PLAYBACK reason)
-    // if GPU synthesis takes longer than the current audio buffer and causes an underflow.
     keepAliveOsc = audioCtx.createOscillator();
     const gainNode = audioCtx.createGain();
-    gainNode.gain.value = 0.0001; // nearly silent, prevents Chrome zero-gain optimizations
+    gainNode.gain.value = 0.0001; // nearly silent
     keepAliveOsc.connect(gainNode);
     gainNode.connect(audioCtx.destination);
     keepAliveOsc.start();
+    
+    // Attempt to unlock AudioContext Autoplay Policy in Chrome
+    audioUnlockPromise = (async () => {
+      try {
+        const audioEl = new Audio();
+        // 1 sample of silence (WAV)
+        audioEl.src = "data:audio/wav;base64,UklGRigAAABXQVZFZm10IBIAAAABAAEARKwAAIhYAQACABAAAABkYXRhAgAAAAEA";
+        await audioEl.play();
+        if (audioCtx.state === "suspended") {
+          audioCtx.resume();
+        }
+      } catch (e) {
+        console.warn("Audio unlock failed:", e);
+      }
+    })();
   }
   return audioCtx;
 }
 
-function scheduleAudioBuffer(audioBuffer) {
+function scheduleAudioBuffer(chunkObj) {
   const ctx = getAudioContext();
   if (ctx.state === "suspended") {
     ctx.resume();
   }
   const source = ctx.createBufferSource();
-  source.buffer = audioBuffer;
+  source.buffer = chunkObj.buffer;
   source.connect(ctx.destination);
 
   const startTime = Math.max(ctx.currentTime + 0.05, nextStartTime);
   source.start(startTime);
-  nextStartTime = startTime + audioBuffer.duration;
+  nextStartTime = startTime + chunkObj.buffer.duration + (chunkObj.pauseAfter || 0);
   activeSources.push(source);
 
   source.onended = () => {
@@ -170,8 +181,11 @@ function flushPendingSchedule() {
   });
 }
 
-function exportMergedWav(buffers, sampleRate = 24000) {
-  const totalSamples = buffers.reduce((sum, b) => sum + b.length, 0);
+function exportMergedWav(chunks, sampleRate = 24000) {
+  const totalSamples = chunks.reduce((sum, chunk) => {
+    const pauseSamples = Math.floor((chunk.pauseAfter || 0) * sampleRate);
+    return sum + chunk.buffer.length + pauseSamples;
+  }, 0);
   const wavBuffer = new ArrayBuffer(44 + totalSamples * 2);
   const view = new DataView(wavBuffer);
   const writeString = (offset, str) => {
@@ -191,11 +205,15 @@ function exportMergedWav(buffers, sampleRate = 24000) {
   writeString(36, "data");
   view.setUint32(40, totalSamples * 2, true);
   let offset = 44;
-  for (const buf of buffers) {
-    const channelData = buf.getChannelData(0);
+  for (const chunk of chunks) {
+    const channelData = chunk.buffer.getChannelData(0);
     for (let i = 0; i < channelData.length; i++, offset += 2) {
       const s = Math.max(-1, Math.min(1, channelData[i]));
       view.setInt16(offset, s < 0 ? s * 0x8000 : s * 0x7fff, true);
+    }
+    const pauseSamples = Math.floor((chunk.pauseAfter || 0) * sampleRate);
+    for (let i = 0; i < pauseSamples; i++, offset += 2) {
+      view.setInt16(offset, 0, true);
     }
   }
   return new Blob([wavBuffer], { type: "audio/wav" });
@@ -232,22 +250,23 @@ ttsWorker.onmessage = async (e) => {
     if (!isCancelled && msg.generationId === generationId) {
       const ctx = getAudioContext();
       if (ctx.state === "suspended") {
-        await ctx.resume();
+        ctx.resume();
       }
 
       const audioBuffer = await ctx.decodeAudioData(msg.arrayBuf);
-      collectedAudioBuffers.push(audioBuffer);
+      const chunkData = { buffer: audioBuffer, pauseAfter: msg.pauseAfter || 0 };
+      collectedAudioBuffers.push(chunkData);
       chunksReceived++;
 
       if (chunksReceived <= PRE_BUFFER_THRESHOLD) {
         // Collect chunks until we have enough for a smooth start
-        pendingSchedule.push(audioBuffer);
+        pendingSchedule.push(chunkData);
         if (chunksReceived === PRE_BUFFER_THRESHOLD) {
           flushPendingSchedule();
         }
       } else {
         // Past threshold — schedule immediately (GPU has a head start)
-        scheduleAudioBuffer(audioBuffer);
+        scheduleAudioBuffer(chunkData);
       }
     }
   }
@@ -356,10 +375,10 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
         if (blob) {
           const arrayBuf = await blob.arrayBuffer();
           const ctx = getAudioContext();
-          if (ctx.state === "suspended") await ctx.resume();
+          if (ctx.state === "suspended") ctx.resume();
           nextStartTime = ctx.currentTime;
           const audioBuffer = await ctx.decodeAudioData(arrayBuf);
-          scheduleAudioBuffer(audioBuffer);
+          scheduleAudioBuffer({ buffer: audioBuffer, pauseAfter: 0 });
           
           portSend({ type: "TTS_STATUS", status: "Playing audio", state: "playing" });
           portSend({ type: "TTS_AUDIO_READY" });

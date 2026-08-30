@@ -15,14 +15,21 @@ export async function generateCacheKey(text, voice, speed, model) {
 function openDB() {
   return new Promise((resolve, reject) => {
     const request = indexedDB.open(DB_NAME, DB_VERSION);
-    request.onupgradeneeded = () => {
-      const db = request.result;
+    request.onupgradeneeded = (e) => {
+      const target = /** @type {IDBRequest} */ (e.target);
+      const db = target.result;
       if (!db.objectStoreNames.contains(STORE_NAME)) {
         db.createObjectStore(STORE_NAME);
       }
     };
-    request.onsuccess = () => resolve(request.result);
-    request.onerror = () => reject(request.error);
+    request.onsuccess = (e) => {
+      const target = /** @type {IDBRequest} */ (e.target);
+      resolve(target.result);
+    };
+    request.onerror = (e) => {
+      const target = /** @type {IDBRequest} */ (e.target);
+      reject(target.error);
+    };
   });
 }
 

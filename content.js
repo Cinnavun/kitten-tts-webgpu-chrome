@@ -54,7 +54,7 @@ function showToast(payload) {
   `;
 
   document.getElementById("__kitten_stop_btn")?.addEventListener("click", () => {
-    chrome.runtime.sendMessage({ target: "offscreen", type: "STOP_AUDIO" });
+    chrome.runtime?.sendMessage?.({ target: "offscreen", type: "STOP_AUDIO" });
     toast.remove();
   });
 }

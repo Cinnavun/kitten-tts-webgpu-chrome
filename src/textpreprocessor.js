@@ -391,6 +391,15 @@ function fixMissingSentenceSpacing(text) {
   return shielded;
 }
 
+function stripAbbreviationPeriods(text) {
+  return text.replace(/\b([a-zA-Z]+)\./g, (match, word) => {
+    if (ABBREVIATIONS.has(word.toLowerCase())) {
+      return word; // strip the period
+    }
+    return match;
+  });
+}
+
 // ─────────────────────────────────────────────
 // Basic mutators
 // ─────────────────────────────────────────────
@@ -467,6 +476,40 @@ const DEFAULT_STOPWORDS = new Set([
   "it", "its", "i", "me", "my", "we", "our", "you", "your", "he", "she", "him", "her", "they", "them", "their"
 ]);
 
+const ACRONYMS_TO_SPELL = new Set([
+  "USA", "NYC", "GPU", "CPU", "NPU", "TPU", "IUD", "IUP", "MIT", "SMU", "BYU",
+  "ASU", "OSU", "UN", "UNGA", "UNSC", "UNFPA", "API", "CEO", "CFO", "CTO",
+  "FBI", "CIA", "NSA", "IRS", "UK", "EU", "URL", "HTTP", "HTTPS", "SSL", "TLS",
+  "TCP", "UDP", "DNS", "UI", "UX", "PR", "HR", "HQ", "QA", "QC", "VIP", "DIY",
+  "UFO", "ID", "AI", "AGI", "ML", "LLM", "GPT", "TTS", "STT", "NLP", "CV",
+  "PDF", "JPG", "PNG", "MP3", "MP4", "WAV", "AVI", "USB", "HDMI", "SSD", "HDD",
+  "RAM", "ROM", "PC", "MAC", "OS", "IBM", "AMD", "BBC", "CNN", "NBC", "CBS",
+  "ABC", "PBS", "NPR", "MTV", "HBO", "ESPN", "NFL", "NBA", "MLB", "NHL", "LA", "NY", "DC",
+  "AWS", "GCP", "SDK", "IDE", "CLI", "GUI", "CSV", "XML", "JSON", "SVG", "CSS", "SQL", "DB", "VRAM"
+]);
+
+function expandAcronyms(text) {
+  // Replace words that are ALL CAPS and in our list, or have no vowels
+  text = text.replace(/\b([A-Z]{2,7})([sS]?)\b/g, (match, word, plural) => {
+    const hasVowel = /[AEIOUY]/.test(word);
+    if (ACRONYMS_TO_SPELL.has(word) || !hasVowel) {
+      const spelled = word.split('').join(' ');
+      return plural ? `${spelled} s` : spelled;
+    }
+    return match;
+  });
+
+  // Handle "the UN" or "The UN" if written with a lowercase un
+  text = text.replace(/\b([Tt]he)\s+(un|UN)\b(?!\-)/g, (match, the, un) => {
+    if (un.toLowerCase() === 'un') {
+      return `${the} U N`;
+    }
+    return match;
+  });
+
+  return text;
+}
+
 
 // ─────────────────────────────────────────────
 // Pipeline class
@@ -518,6 +561,7 @@ export class TextPreprocessor {
     // Fix missing sentence spacing BEFORE URLs are removed — the function
     // shields URLs/emails internally so their dots are never modified.
     text = fixMissingSentenceSpacing(text);
+    text = stripAbbreviationPeriods(text);
 
     if (cfg.remove_urls) text = text.replace(RE_URL, "").trim();
     if (cfg.remove_emails) text = text.replace(RE_EMAIL, "").trim();
@@ -548,6 +592,9 @@ export class TextPreprocessor {
     }
 
     if (cfg.remove_punctuation) text = text.replace(RE_PUNCT, " ");
+    
+    text = expandAcronyms(text);
+
     if (cfg.lowercase) text = text.toLowerCase();
 
     if (cfg.remove_stopwords) {

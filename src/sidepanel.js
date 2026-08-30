@@ -155,6 +155,10 @@ clearBtn?.addEventListener("click", () => {
 // Helper to start playback
 async function startPlayback(textToPlay) {
   const text = (textToPlay || textInput?.value || "").trim();
+  const voice = voiceSelect?.value || "Jasper";
+  const speed = parseFloat(speedInput?.value || "1.0");
+  const model = modelSelect?.value || "nano";
+
   if (!text) {
     if (statusText)
       statusText.textContent = "Please enter text or extract an article.";
@@ -162,14 +166,27 @@ async function startPlayback(textToPlay) {
   }
 
   await chrome.runtime.sendMessage({ type: "ENSURE_OFFSCREEN" });
-  chrome.runtime.sendMessage({
-    target: "offscreen",
-    type: "PLAY_TEXT",
-    text,
-    voice: voiceSelect?.value || "Jasper",
-    speed: parseFloat(speedInput?.value || "1.0"),
-    model: modelSelect?.value || "nano",
-  });
+  
+  const cacheKey = await generateCacheKey(text, voice, speed, model);
+  const cachedBlob = await getAudio(cacheKey);
+
+  if (cachedBlob) {
+    chrome.runtime.sendMessage({
+      target: "offscreen",
+      type: "PLAY_CACHED",
+      cacheKey
+    });
+  } else {
+    chrome.runtime.sendMessage({
+      target: "offscreen",
+      type: "PLAY_TEXT",
+      text,
+      voice,
+      speed,
+      model,
+      cacheKey
+    });
+  }
 
   if (playBtn) playBtn.disabled = true;
   if (stopBtn) stopBtn.disabled = false;
@@ -177,7 +194,7 @@ async function startPlayback(textToPlay) {
   if (progressContainer) progressContainer.style.display = "block";
   if (progressFill) progressFill.style.width = "0%";
   if (statusDot) statusDot.className = "status-dot busy";
-  if (statusText) statusText.textContent = "Synthesizing with WebGPU...";
+  if (statusText) statusText.textContent = cachedBlob ? "Playing cached audio..." : "Synthesizing with WebGPU...";
 }
 
 // 6. Scan & Auto-Play Article Action
