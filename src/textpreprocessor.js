@@ -122,6 +122,7 @@ const RE_SCI = /(?<![a-zA-Z\d])(-?\d+(?:\.\d+)?)[eE]([+-]?\d+)(?![a-zA-Z\d])/g;
 const RE_FRACTION = /\b(\d+)\s*\/\s*(\d+)\b/g;
 const RE_DECADE = /\b(\d{1,3})0s\b/gi;
 const RE_LEAD_DEC = /(?<!\d)\.([\d])/g;
+const RE_NO_NUM = /\bno\.\s*(?=\d)/gi;
 
 // Common abbreviations that use periods — must not get spaces inserted after them
 export const ABBREVIATIONS = new Set([
@@ -330,6 +331,10 @@ function expandPhoneNumbers(text) {
   return text;
 }
 
+function expandNumberAbbreviation(text) {
+  return text.replace(RE_NO_NUM, "number ");
+}
+
 // ─────────────────────────────────────────────
 // Sentence boundary repair
 // ─────────────────────────────────────────────
@@ -430,7 +435,7 @@ function expandContractions(text) {
   const contractions = [
     // Specific contractions first (before generic patterns can match)
     [/\bcan't\b/gi, "cannot"], [/\bwon't\b/gi, "will not"], [/\bshan't\b/gi, "shall not"],
-    [/\bain't\b/gi, "is not"], [/\blet's\b/gi, "let us"],
+    [/\blet's\b/gi, "let us"],
     [/\bit's\b/gi, "it is"], [/\bhe's\b/gi, "he is"], [/\bshe's\b/gi, "she is"],
     [/\bwho's\b/gi, "who is"], [/\bwhat's\b/gi, "what is"], [/\bthat's\b/gi, "that is"],
     [/\bthere's\b/gi, "there is"], [/\bhere's\b/gi, "here is"], [/\bwhere's\b/gi, "where is"],
@@ -462,10 +467,13 @@ function expandContractions(text) {
 function mergePossessives(text) {
   // Possessive 's → merge: "Jared's house" → "Jareds house"
   text = text.replace(/\b(\w+)'s\b/g, "$1s");
-  // Plural possessive s' → just drop the apostrophe: "the kids' toys" → "the kids toys"
+  // Plural possessive s' → drop apostrophe: "the kids' toys" → "the kids toys"
   text = text.replace(/\b(\w+s)'\b/g, "$1");
-  // Any remaining stray apostrophes (e.g. from nested quotes) → remove
-  text = text.replace(/'/g, " ");
+  // Only remove *stray* apostrophes (nested quotes, curly-quote artifacts).
+  // Keep apostrophes that are part of standard contraction suffixes
+  // (n't, 're, 've, 'll, 'd, 'm) so eSpeak can pronounce them naturally
+  // when expand_contractions is disabled.
+  text = text.replace(/'(?!(?:t|re|ve|ll|d|m)\b)/gi, "");
   return text;
 }
 
@@ -521,7 +529,7 @@ export class TextPreprocessor {
       lowercase: true,
       replace_numbers: true,
       replace_floats: true,
-      expand_contractions: true,
+      expand_contractions: false,
       expand_model_names: true,
       expand_ordinals: true,
       expand_percentages: true,
@@ -561,6 +569,7 @@ export class TextPreprocessor {
     // Fix missing sentence spacing BEFORE URLs are removed — the function
     // shields URLs/emails internally so their dots are never modified.
     text = fixMissingSentenceSpacing(text);
+    text = expandNumberAbbreviation(text);
     text = stripAbbreviationPeriods(text);
 
     if (cfg.remove_urls) text = text.replace(RE_URL, "").trim();
