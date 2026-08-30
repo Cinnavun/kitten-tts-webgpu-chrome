@@ -95,4 +95,4 @@ Scan and read the current active tab article
 
 ## 📄 License
 
-This extension is open source under the MIT License.
+This extension is open source under the GPL-3.0 License.

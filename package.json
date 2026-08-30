@@ -2,6 +2,7 @@
   "name": "Kitten-TTS-Webgpu-Chrome",
   "version": "1.0.00",
   "description": "Free open-source, local-first text-to-speech using KittenTTS models in browser. Select text or extract full articles, and generate audio .wav files that you can save",
+  "license": "GPL-3.0",
   "main": "background.js",
   "scripts": {
     "build:esm": "esbuild src/worker.js --bundle --format=esm --sourcemap=inline --outdir=dist",
