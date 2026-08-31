@@ -464,7 +464,7 @@ function expandSlang(text) {
 
     // intensifiers / filler
     [/\baf\b/gi, "A F"],
-    [/\basf\b/gi, "AS F"],
+    [/\basf\b/gi, "As F"],
     [/\bfr+\b/gi, "for real"],
 
     // politeness / gratitude

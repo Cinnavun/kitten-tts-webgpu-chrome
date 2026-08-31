@@ -4,6 +4,14 @@ import { dbg } from "./debugLogger.js";
 
 const preprocessor = new TextPreprocessor();
 
+// Force high-performance GPU (e.g. dedicated Nvidia over Intel iGPU)
+if (navigator.gpu) {
+  const origRequestAdapter = navigator.gpu.requestAdapter.bind(navigator.gpu);
+  navigator.gpu.requestAdapter = (options = {}) => {
+    return origRequestAdapter({ ...options, powerPreference: "high-performance" });
+  };
+}
+
 // ─── Model Management ─────────────────────────────────────────────
 
 // Models shipped locally with the extension (loaded from models/ directory)
@@ -68,6 +76,17 @@ async function getEngine(model = "nano", onProgress) {
     }
 
     await engine.loadModel(onnxUrl, voicesUrl);
+
+    // PATCH: kitten-tts-webgpu's generate() unconditionally calls
+    // this.destroyPool() at the end of every call, wiping the GPU buffer
+    // pool it just built. That forces full buffer reallocation on every
+    // chunk instead of reusing pooled buffers, which is almost certainly
+    // why synthesis degrades chunk over chunk on Chrome/Edge (Dawn/D3D12
+    // buffer allocator churn). No-op it here so the pool persists for the
+    // life of the engine instance. Remove this once fixed upstream in
+    // svenflow/kitten-tts-webgpu.
+    engine['destroyPool'] = () => {};
+
     engineCache.set(model, engine);
     console.log(`[KittenTTS Worker] Engine ready for model: ${model}`);
     return engine;
@@ -129,7 +148,7 @@ function chunkText(text) {
   dbg("chunkText.preprocessed", { count: sentences.length, sentences });
 
   // Library supports up to ~500 chars, but >250 can freeze some WebGPU implementations
-  const MAX_CHUNK_LENGTH = 380;
+  const MAX_CHUNK_LENGTH = 420;
   const finalChunks = [];
 
   for (const sentence of sentences) {
@@ -202,9 +221,21 @@ let isCancelled = false;
  * Bypasses the library's textToSpeech() convenience function (which hardcodes HuggingFace URLs).
  */
 async function synthesizeChunk(engine, text, voice, speed) {
-  const { ids } = await textToInputIds(text);
-  const { waveform } = await engine.generate(ids, voice, speed, text.length);
-  return float32ToWav(waveform, 24000);
+  let idsData = await textToInputIds(text);
+  let generateResult = await engine.generate(idsData.ids, voice, speed, text.length);
+  const blob = float32ToWav(generateResult.waveform, 24000);
+  
+  // Explicitly clear references to large Float32Arrays to aid Garbage Collection
+  // @ts-ignore: Intentionally assigning null to aid Garbage Collection
+  idsData.ids = null;
+  // @ts-ignore
+  idsData = null;
+  // @ts-ignore
+  generateResult.waveform = null;
+  // @ts-ignore
+  generateResult = null;
+  
+  return blob;
 }
 
 function synthesizeWithTimeout(engine, text, voice, speed, timeoutMs = 60000) {
