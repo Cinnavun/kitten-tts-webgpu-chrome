@@ -1,8 +1,27 @@
 {
-  "name": "Kitten-TTS-Webgpu-Chrome",
-  "version": "1.0.00",
+  "name": "kitten-tts-webgpu-chrome",
+  "version": "1.1.0",
   "description": "Free open-source, local-first text-to-speech using KittenTTS models in browser. Select text or extract full articles, and generate audio .wav files that you can save",
   "license": "GPL-3.0",
+  "author": "Your Name <your.email@example.com>",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/your-username/kitten-tts-webgpu-chrome.git"
+  },
+  "homepage": "https://github.com/your-username/kitten-tts-webgpu-chrome",
+  "keywords": [
+    "text-to-speech",
+    "tts",
+    "webgpu",
+    "privacy",
+    "on-device",
+    "accessibility",
+    "chrome-extension"
+  ],
+  "bugs": {
+    "url": "https://github.com/your-username/kitten-tts-webgpu-chrome/issues",
+    "email": "your.email@example.com"
+  },
   "main": "background.js",
   "scripts": {
     "build:esm": "esbuild src/worker.js --bundle --format=esm --sourcemap=inline --outdir=dist",

@@ -16,6 +16,29 @@ A fast, private, 100% on-device Text-to-Speech Chrome extension powered by **Web
 
 \---
 
+## 📦 Models
+
+Kitten TTS WebGPU includes **three model sizes**, optimized for different performance/quality tradeoffs:
+
+| Model | Size | Speed | Quality | Bundled? | First Use |
+|-------|------|-------|---------|----------|-----------|
+| **Nano** | ~24MB | ⚡ Fast | Good | ✅ Yes | Instant (pre-bundled) |
+| **Micro** | ~41MB | 🔋 Normal | Better | ❌ No | Downloads on first use (~2-5 min) |
+| **Mini** | ~78MB | 🐢 Slower | Best | ❌ No | Downloads on first use (~4-8 min) |
+
+**How it works:**
+1. **Nano model** is included with the extension (no extra downloads needed)
+2. **Micro & Mini models** download automatically on first use from HuggingFace CDN
+3. Models are cached in your browser—subsequent uses are instant
+4. **Offline:** After models are cached, TTS works fully offline with no internet required
+
+**Your Privacy:**
+- Model downloads are HTTPS-only with no tracking
+- Files are stored in your browser cache, not any remote server
+- You control when/if micro/mini models download
+
+---
+
 ## 🏗️ Architecture
 
 ┌─────────────────────────────────────────────────────────────┐
@@ -68,9 +91,20 @@ Open the Kitten TTS Side Panel
 **Alt + Shift + A**
 Scan and read the current active tab article
 
-*(Customizable at chrome://extensions/shortcuts)*
+*(Customizable at `chrome://extensions/shortcuts`)*
 
-## 🛠️ Project Structure
+---
+
+## 📚 Documentation
+
+- [**Privacy Policy**](./PRIVACY_POLICY.md) — What data is collected (spoiler: none!)
+- [**Security Policy**](./SECURITY.md) — How to report vulnerabilities
+- [**Contributing**](./CONTRIBUTING.md) — How to contribute code and improvements
+- [**Code of Conduct**](./CODE_OF_CONDUCT.md) — Community guidelines
+- [**Attribution**](./ATTRIBUTION.md) — Third-party licenses and credits
+- [**Changelog**](./CHANGELOG.md) — Version history and updates
+
+---
 
 ```text
 ├── manifest.json         # Extension manifest (V3)

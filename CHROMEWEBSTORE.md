@@ -31,21 +31,65 @@ Extracts readable text from web pages and synthesizes it to speech entirely on-d
 **Primary Language** [REQUIRED]
 English
 
-## Graphics & Assets
+## Developer Info
 
-| Asset | Dimensions | Status | Filename |
-|-------|-----------|--------|----------|
-| Store Icon [REQUIRED] | 128×128 PNG | 🟡 Needs update | |
-| Screenshot 1 [REQUIRED] | 1280×800 or 640×400 | ⬜ Not created | |
-| Screenshot 2 [RECOMMENDED] | 1280×800 or 640×400 | ⬜ Not created | |
-| Screenshot 3 [RECOMMENDED] | 1280×800 or 640×400 | ⬜ Not created | |
-| Screenshot 4 | 1280×800 or 640×400 | ⬜ Not created | |
-| Screenshot 5 | 1280×800 or 640×400 | ⬜ Not created | |
-| Small Promo Tile [RECOMMENDED] | 440×280 | ⬜ Not created | |
-| Marquee Promo Tile | 1400×560 | ⬜ Not created | |
+**Publisher Name** [REQUIRED]
+[YOUR NAME OR ORGANIZATION NAME]
+Example: "John Smith" or "Kitten TTS Contributors"
 
+**Contact Email** [REQUIRED]
+[YOUR EMAIL ADDRESS]
+This should be an email you monitor regularly for Chrome Web Store communications.
 
-## Permissions Justification
+---
+
+## Privacy Policy
+
+**Privacy Policy URL** [REQUIRED]
+https://github.com/your-username/kitten-tts-webgpu-chrome/blob/master/PRIVACY_POLICY.md
+
+This can link directly to the GitHub PRIVACY_POLICY.md file, or you can host it separately. The Chrome Web Store requires this link.
+
+---
+
+## Graphics & Assets — REQUIRED FOR SUBMISSION
+
+| Asset | Dimensions | Type | Purpose | Status |
+|-------|-----------|------|---------|--------|
+| Extension Icon | 128×128 PNG | Branding | Shown in Chrome Web Store | Use `icons/icon128.png` |
+| Screenshot 1 | 1280×800 or 640×400 | Required | Main feature showcase | ⬜ Create |
+| Screenshot 2 | 1280×800 or 640×400 | Recommended | Secondary feature | ⬜ Create |
+| Screenshot 3 | 1280×800 or 640×400 | Recommended | Additional feature | ⬜ Create |
+| Small Promo Tile | 440×280 | Recommended | Search results | ⬜ Create (optional) |
+| Marquee Promo Tile | 1400×560 | Optional | Featured display | ⬜ Create (optional) |
+
+### How to Create Screenshots
+
+1. **Screenshot 1 — Main Features:**
+   - Open a news article in Chrome
+   - Show Kitten TTS side panel open on the right
+   - Display: Text selection, voice choices, play button
+   - Suggested caption: "Read any article with a single click"
+
+2. **Screenshot 2 — Context Menu:**
+   - Screenshot of right-click menu with "Read with Kitten TTS" option
+   - Some text highlighted on page
+   - Caption: "Highlight any text and instantly read it aloud"
+
+3. **Screenshot 3 — Audio Export:**
+   - Show side panel with "Download" button highlighted
+   - Caption: "Export synthesized audio as .wav files for offline listening"
+
+### Tips for Chrome Web Store Screenshots
+
+- Use readable fonts (minimum 12pt)
+- Show key UI elements clearly
+- Include captions or text overlays
+- Capture on 1280×800 resolution if possible
+- Keep text/controls visible (avoid small UI elements)
+- Consider adding arrow/highlight overlays to draw attention
+
+---
 
 | Permission | Type | Justification |
 |------------|------|---------------|
@@ -91,6 +135,73 @@ English
 
 ## Version History
 
-| Version | Date | Changes | Status |
-|---------|------|---------|--------|
-| 1.1 | 2026-08-30 | Initial Store Submission | Draft |
+| Version | Date | Status | Changes |
+|---------|------|--------|---------|
+| 1.1.0 | 2026-08-31 | Ready for Store | Fixed sentence spacing, improved audio buffering, added replay cache, model quality selection |
+| 1.0.0 | 2026-08-28 | Initial | Extension first published |
+
+---
+
+## Pre-Submission Checklist
+
+Before submitting to Chrome Web Store:
+
+- [ ] All version numbers aligned (package.json, manifest.json, CHANGELOG.md)
+- [ ] Privacy Policy URL filled in and verified
+- [ ] Publisher Name and Contact Email entered
+- [ ] 2-4 screenshots created and tested
+- [ ] Icons verified (128×128 PNG looks good)
+- [ ] Extension builds without errors: `npm run build`
+- [ ] Extension tested in Chrome and Edge
+- [ ] No errors in Chrome DevTools console
+- [ ] Manifest.json is valid Manifest V3
+- [ ] All permissions are justified in documentation
+- [ ] LICENSE file is GPL-3.0 and complete
+- [ ] PRIVACY_POLICY.md is public and accessible
+- [ ] CONTRIBUTING.md and CODE_OF_CONDUCT.md exist
+
+---
+
+## Submission Instructions
+
+1. **Create Developer Account**
+   - Visit https://chrome.google.com/webstore/devconsole
+   - Pay $5 one-time developer fee
+   - Verify your email
+
+2. **Create New Extension**
+   - Click "New item"
+   - Upload ZIP file (or drag build folder)
+   - ZIP should contain: manifest.json, icons/, models/, dist/, src/, etc.
+
+3. **Fill Store Listing**
+   - Use values from this file
+   - Upload screenshots
+   - Add banner/promo images if desired
+   - Set category to "Accessibility"
+
+4. **Review & Publish**
+   - Chrome Web Store team reviews (typically 24-72 hours)
+   - Address any feedback
+   - Once approved, extension goes live
+
+5. **Monitor Reviews**
+   - Check Chrome Web Store for user ratings
+   - Respond to reviews/questions
+   - Fix bugs quickly
+
+---
+
+## After Publishing
+
+- Monitor Chrome Web Store for reviews and ratings
+- Check GitHub Issues for bug reports
+- Plan Firefox version (requires manifest adaptation)
+- Consider adding features based on user feedback
+- Keep extension updated with security patches
+- Promote on social media, GitHub, developer communities
+
+---
+
+**This extension is ready for store submission once screenshots are created and developer account is set up.**
+**Estimated submission timeline: 1 business day after account setup.**
