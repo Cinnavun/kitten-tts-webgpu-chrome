@@ -64,7 +64,7 @@ Done.
 ## Verify Yourself
 
 Source code is public (GPL-3.0):
-- https://github.com/your-username/kitten-tts-webgpu-chrome
+- https://github.com/cinnavun/kitten-tts-webgpu-chrome
 - If we were spying, you'd see it in the code
 - Anyone can audit, fork, or build from source
 
