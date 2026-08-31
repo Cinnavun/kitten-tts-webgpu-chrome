@@ -119,7 +119,7 @@ Once GitHub releases mature, signed releases may be provided. Track this in GitH
 
 ## Contact
 
-- **Security Email:** your-email@example.com
+- **Security Email:** Cinnavun@icloud.com
 - **GitHub Issues:** Use label `security` for non-critical items
 - **Discussions:** Use `security` category for general questions
 

@@ -1,11 +1,11 @@
-# Chrome Web Store Listing — Kitten TTS WebGPU
+# Chrome Web Store Listing — Kitten TTS WebGPU Chrome
 
-> Last Updated: 2026-08-30
+> Last Updated: 2026-08-31
 
 ## Store Listing
 
 **Extension Name** [REQUIRED]
-Kitten TTS WebGPU
+Kitten TTS WebGPU Chrome
 
 **Short Description** [REQUIRED]
 On-device Text-to-Speech using KittenTTS WebGPU and Mozilla Readability. Listen to articles with complete privacy.

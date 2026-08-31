@@ -122,7 +122,7 @@ All dependencies run locally with no external data transmission:
 ## Open Source
 
 Kitten TTS WebGPU is GPL-3.0 licensed:
-- Source code: https://github.com/your-username/kitten-tts-webgpu-chrome
+- Source code: https://github.com/cinnavun/kitten-tts-webgpu-chrome
 - Anyone can review, modify, and redistribute
 - Reproducible builds available
 
