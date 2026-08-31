@@ -45,13 +45,22 @@ function showToast(payload) {
   }
 
   toast.style.opacity = "1";
-  toast.innerHTML = `
-    <span>🐾 <strong>Kitten TTS:</strong> ${payload.text}</span>
-    <button id="__kitten_stop_btn" style="
-      background: #ef4444; border: none; color: white; padding: 2px 8px;
-      border-radius: 10px; cursor: pointer; font-size: 11px; font-weight: 600;
-    ">⏹ Stop</button>
+  toast.innerHTML = "";
+  
+  const textSpan = document.createElement("span");
+  textSpan.innerHTML = "🐾 <strong>Kitten TTS:</strong> ";
+  textSpan.appendChild(document.createTextNode(payload.text || ""));
+  
+  const stopBtn = document.createElement("button");
+  stopBtn.id = "__kitten_stop_btn";
+  stopBtn.textContent = "⏹ Stop";
+  stopBtn.style.cssText = `
+    background: #ef4444; border: none; color: white; padding: 2px 8px;
+    border-radius: 10px; cursor: pointer; font-size: 11px; font-weight: 600;
   `;
+  
+  toast.appendChild(textSpan);
+  toast.appendChild(stopBtn);
 
   document.getElementById("__kitten_stop_btn")?.addEventListener("click", () => {
     chrome.runtime?.sendMessage?.({ target: "offscreen", type: "STOP_AUDIO" });

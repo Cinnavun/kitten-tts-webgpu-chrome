@@ -336,7 +336,8 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
         });
       } else {
         // Fallback to body text
-        const fallbackText = doc.body?.innerText?.trim() || "";
+        doc.querySelectorAll("script, style, noscript, template, iframe, svg").forEach(el => el.remove());
+        const fallbackText = doc.body?.textContent?.trim() || "";
         offscreenDbg("readability.fallback", { length: fallbackText.length, preview: fallbackText.slice(0, 200) });
         sendResponse({
           title: msg.title || "",

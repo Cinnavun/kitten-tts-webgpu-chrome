@@ -85,7 +85,7 @@ async function getEngine(model = "nano", onProgress) {
     // buffer allocator churn). No-op it here so the pool persists for the
     // life of the engine instance. Remove this once fixed upstream in
     // svenflow/kitten-tts-webgpu.
-    engine['destroyPool'] = () => {};
+    engine['destroyPool'] = () => { };
 
     engineCache.set(model, engine);
     console.log(`[KittenTTS Worker] Engine ready for model: ${model}`);
@@ -224,7 +224,7 @@ async function synthesizeChunk(engine, text, voice, speed) {
   let idsData = await textToInputIds(text);
   let generateResult = await engine.generate(idsData.ids, voice, speed, text.length);
   const blob = float32ToWav(generateResult.waveform, 24000);
-  
+
   // Explicitly clear references to large Float32Arrays to aid Garbage Collection
   // @ts-ignore: Intentionally assigning null to aid Garbage Collection
   idsData.ids = null;
@@ -234,7 +234,7 @@ async function synthesizeChunk(engine, text, voice, speed) {
   generateResult.waveform = null;
   // @ts-ignore
   generateResult = null;
-  
+
   return blob;
 }
 
