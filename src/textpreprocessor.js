@@ -364,6 +364,21 @@ const STANDALONE_ABBREVIATIONS = {
   "govt": "government", "assn": "association"
 };
 
+const MONTH_ABBREVIATIONS = {
+  "jan": "January", "feb": "February", "mar": "March", "apr": "April",
+  "jun": "June", "jul": "July", "aug": "August", "sep": "September", "sept": "September",
+  "oct": "October", "nov": "November", "dec": "December"
+};
+
+function expandMonthAbbreviations(text) {
+  const monthRegexStr = Object.keys(MONTH_ABBREVIATIONS).join('|');
+  const monthPattern = new RegExp(`\\b(${monthRegexStr})\\.`, 'gi');
+  return text.replace(monthPattern, (match, month) => {
+    const expanded = MONTH_ABBREVIATIONS[month.toLowerCase()];
+    return month[0] === month[0].toUpperCase() ? expanded.charAt(0).toUpperCase() + expanded.slice(1) : expanded;
+  });
+}
+
 function buildCaseInsensitiveRegex(keys) {
   return keys.map(word => word.split('').map(c => `[${c.toLowerCase()}${c.toUpperCase()}]`).join('')).join('|');
 }
@@ -428,7 +443,7 @@ function expandAbbreviations(text) {
  *   - Dotted identifiers (U.S.A, i.e., e.g.)
  *   - File extensions (.pdf, .html)
  */
-function fixMissingSentenceSpacing(text) {
+export function fixMissingSentenceSpacing(text) {
   // Protect URLs and emails by replacing with placeholders
   const urlPlaceholders = [];
   let shielded = text.replace(RE_URL, (match) => {
@@ -741,7 +756,10 @@ export class TextPreprocessor {
     text = expandNumberAbbreviation(text);
     text = stripAbbreviationPeriods(text);
 
-    if (cfg.expand_abbreviations) text = expandAbbreviations(text);
+    if (cfg.expand_abbreviations) {
+      text = expandMonthAbbreviations(text);
+      text = expandAbbreviations(text);
+    }
 
     if (cfg.remove_urls) text = text.replace(RE_URL, "").trim();
     if (cfg.remove_emails) text = text.replace(RE_EMAIL, "").trim();

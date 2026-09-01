@@ -1,5 +1,5 @@
 import { KittenTTSEngine, textToInputIds, float32ToWav } from "kitten-tts-webgpu";
-import { TextPreprocessor, ABBREVIATIONS } from "./textpreprocessor.js";
+import { TextPreprocessor, ABBREVIATIONS, fixMissingSentenceSpacing } from "./textpreprocessor.js";
 import { dbg } from "./debugLogger.js";
 
 const preprocessor = new TextPreprocessor();
@@ -107,32 +107,22 @@ async function getEngine(model = "nano", onProgress) {
 
 // ─── Text Chunking ─────────────────────────────────────────────────
 
-/**
- * Preprocess and split text into natural sentence-level chunks for TTS.
- * Uses Intl.Segmenter for sentence detection, falls back to regex.
- * Long sentences are split at clause boundaries (semicolons/colons first, then commas).
- */
-function chunkText(text) {
-  if (!text || typeof text !== "string") return [];
-
-  // Sentence segmentation on raw text first
+function segmentSentences(para) {
   let rawSentences = [];
   if (typeof Intl !== "undefined" && Intl.Segmenter) {
     const segmenter = new Intl.Segmenter("en", { granularity: "sentence" });
-    const segments = Array.from(segmenter.segment(text))
+    const segments = Array.from(segmenter.segment(para))
       .map((s) => s.segment.trim())
       .filter((s) => s.length > 0);
 
-    // Stitch sentences back together if the previous one ends with an abbreviation
-    const DOTTED_INITIALISM = /(?:\b[A-Za-z]\.){2,}\s*$/;   // "U.S.", "U.K.", "e.g."
+    const DOTTED_INITIALISM = /(?:\b[A-Za-z]\.){2,}\s*$/;
     let stitched = [];
     for (let i = 0; i < segments.length; i++) {
       let seg = segments[i];
       if (stitched.length > 0) {
         let prev = stitched[stitched.length - 1];
-        // Match a word followed by a period at the end of the previous segment
         let match = prev.match(/([a-zA-Z]+)\.$/);
-        
+
         if (DOTTED_INITIALISM.test(prev) || (match && ABBREVIATIONS.has(match[1].toLowerCase()))) {
           stitched[stitched.length - 1] = prev + " " + seg;
           continue;
@@ -142,28 +132,32 @@ function chunkText(text) {
     }
     rawSentences = stitched;
   } else {
-    // Fallback regex that includes trailing quotes/brackets
-    rawSentences = text.match(/[^.!?\n]+[.!?\n]+(?:["'’”\]})])?|[^.!?\n]+$/g)?.map((s) => s.trim()) || [text];
+    rawSentences = para.match(/[^.!?\n]+[.!?\n]+(?:["'’”\]})])?|[^.!?\n]+$/g)?.map((s) => s.trim()) || [para];
   }
+  return rawSentences;
+}
 
-  dbg("chunkText.rawSentences", { count: rawSentences.length, sentences: rawSentences });
+/**
+ * Preprocess and split text into natural sentence-level chunks for TTS.
+ * Uses Intl.Segmenter for sentence detection, falls back to regex.
+ * Long sentences are split at clause boundaries (semicolons/colons first, then commas).
+ */
+function chunkText(text) {
+  if (!text || typeof text !== "string") return [];
 
-  // Preprocess each sentence individually
-  const sentences = rawSentences
-    .map(s => preprocessor.process(s))
-    .filter(s => s && /[a-zA-Z0-9]/.test(s));
+  // Fix any missing spacing before segmentation so the Segmenter can do its job
+  text = fixMissingSentenceSpacing(text);
 
-  dbg("chunkText.preprocessed", { count: sentences.length, sentences });
-
-  const MAX_CHUNK_LENGTH = 350;
-  const TARGET_CHUNK_LENGTH = 160;
+  const MAX_CHUNK_LENGTH = 400;
+  const TARGET_CHUNK_LENGTH = 180;
   const finalChunks = [];
   let currentChunk = "";
 
   const pushCurrentChunk = () => {
-    if (currentChunk) {
-      finalChunks.push(currentChunk.trim());
-      currentChunk = "";
+    const t = currentChunk.trim();
+    currentChunk = "";
+    if (t && /[a-zA-Z0-9]/.test(t)) {
+      finalChunks.push(t);
     }
   };
 
@@ -178,7 +172,6 @@ function chunkText(text) {
 
     if (piece.length > MAX_CHUNK_LENGTH) {
       if (!splitRegex) {
-        // Ultimate fallback: word-level splitting
         const words = piece.split(/\s+/);
         for (const w of words) {
           let currentWord = w;
@@ -200,7 +193,6 @@ function chunkText(text) {
       }
 
       const subPieces = piece.split(splitRegex);
-      // If the regex couldn't find any split points, degrade to the next tier
       if (subPieces.length === 1 && subPieces[0] === piece) {
         if (nextFallback) nextFallback(piece);
         return;
@@ -212,7 +204,6 @@ function chunkText(text) {
       return;
     }
 
-    // Piece fits within MAX, try to pack it
     if ((currentChunk + " " + piece).trim().length > MAX_CHUNK_LENGTH) {
       pushCurrentChunk();
     }
@@ -226,12 +217,23 @@ function chunkText(text) {
   const processComma = (clause) => addPiece(clause, /(?<=[,])\s+/, processWord);
   const processSentence = (sentence) => addPiece(sentence, /(?<=[;:—–\n])\s+/, processComma);
 
-  for (const sentence of sentences) {
-    processSentence(sentence);
+  const paragraphEnds = new Set();
+  
+  for (const para of text.split(/\n{2,}/).map(p => p.trim()).filter(Boolean)) {
+    const sentences = segmentSentences(para)
+      .map(s => preprocessor.process(s))
+      .filter(s => s && /[a-zA-Z0-9]/.test(s));
+
+    for (const sentence of sentences) {
+      processSentence(sentence);
+    }
+    pushCurrentChunk();
+    if (finalChunks.length) paragraphEnds.add(finalChunks.length - 1);
   }
+  
   pushCurrentChunk();
 
-  const result = finalChunks.filter((c) => c && /[a-zA-Z0-9]/.test(c));
+  const result = finalChunks.map((t, i) => ({ text: t, paraEnd: paragraphEnds.has(i) }));
   dbg("chunkText.finalChunks", { count: result.length, chunks: result });
   return result;
 }
@@ -356,9 +358,9 @@ self.onmessage = async (e) => {
         });
 
         try {
-          dbg("synthesize.chunk", { index: i, total: chunks.length, chunk });
+          dbg("synthesize.chunk", { index: i, total: chunks.length, chunk: chunk.text });
           const blob = await synthesizeWithTimeout(
-            engine, chunk, voice || "Jasper", speed || 1.0
+            engine, chunk.text, voice || "Jasper", speed || 1.0
           );
 
           if (isCancelled) break;
@@ -369,8 +371,10 @@ self.onmessage = async (e) => {
 
             let pauseAfter = 0;
             if (i < chunks.length - 1) {
-              const chunkStr = chunk.trim();
-              if (/[.!?]["')\]]*$/.test(chunkStr)) {
+              const chunkStr = chunk.text.trim();
+              if (chunk.paraEnd) {
+                pauseAfter = 0.45;
+              } else if (/[.!?]["')\]]*$/.test(chunkStr)) {
                 pauseAfter = 0.25;
               } else if (/[,;:]["')\]]*$/.test(chunkStr)) {
                 pauseAfter = 0.1;

@@ -1,0 +1,78 @@
+name: Build Store Package
+
+on:
+  push:
+    tags:
+      - 'v*'  # Trigger on version tags (v1.1.0, v1.2.0, etc.)
+  workflow_dispatch:  # Allow manual trigger from GitHub UI
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+      
+      - name: Install dependencies
+        run: npm install
+      
+      - name: Build extension
+        run: npm run build
+      
+      - name: Create store package (ZIP)
+        run: |
+          # Create temporary directory with only store-required files
+          mkdir -p build-store
+          
+          # Copy required files
+          cp -r \
+            manifest.json \
+            background.js \
+            content.js \
+            offscreen.html \
+            sidepanel.html \
+            sidepanel.css \
+            icons/ \
+            models/ \
+            assets/ \
+            dist/ \
+            src/ \
+            build-store/
+          
+          # Create ZIP file
+          cd build-store
+          zip -r ../kitten-tts-webgpu-chrome-store.zip .
+          cd ..
+          
+          # Output file info
+          ls -lh kitten-tts-webgpu-chrome-store.zip
+      
+      - name: Create Release
+        uses: softprops/action-gh-release@v1
+        with:
+          files: kitten-tts-webgpu-chrome-store.zip
+          body: |
+            # Chrome Web Store Package
+            
+            Ready for submission to Chrome Web Store.
+            
+            **Contents:**
+            - manifest.json
+            - Extension source code (src/, background.js, content.js)
+            - UI files (sidepanel.html, offscreen.html, sidepanel.css)
+            - Icons (icons/)
+            - Pre-bundled model (models/)
+            - Language assets (assets/)
+            - Built bundles (dist/)
+            
+            **What's NOT included (don't upload these):**
+            - node_modules/ (deps auto-install)
+            - .git/ (version control only)
+            - Documentation files (README.md, LICENSE, etc. optional)
+            
+            For submission: Upload this ZIP to Chrome Web Store dashboard.
