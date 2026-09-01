@@ -150,6 +150,22 @@ function updateActionBadge(state, text = "", tooltip = "") {
   }
 }
 
+async function ensureContentScriptsInjected(tabId) {
+  const results = await chrome.scripting.executeScript({
+    target: { tabId },
+    func: () => window["__kittenTTSInjected"] === true
+  }).catch(() => null);
+
+  if (results && results[0] && results[0].result === true) {
+    return; // Already injected
+  }
+
+  await chrome.scripting.executeScript({
+    target: { tabId },
+    files: ["dist/extractor.js", "content.js"]
+  });
+}
+
 // 2. In-Page Floating Toast UI (via content script)
 async function sendToastToActiveTab(payload) {
   try {
@@ -168,10 +184,20 @@ async function sendToastToActiveTab(payload) {
       return;
     }
 
-    await chrome.tabs.sendMessage(tab.id, {
-      type: "SHOW_TOAST",
-      payload
-    });
+    try {
+      await chrome.tabs.sendMessage(tab.id, {
+        type: "SHOW_TOAST",
+        payload
+      });
+    } catch (err) {
+      if (err.message && err.message.includes("Receiving end does not exist")) {
+        await ensureContentScriptsInjected(tab.id);
+        await chrome.tabs.sendMessage(tab.id, {
+          type: "SHOW_TOAST",
+          payload
+        });
+      }
+    }
   } catch (_) { }
 }
 
@@ -192,15 +218,25 @@ async function runArticleExtractor(tab) {
     throw new Error("Cannot extract from browser internal pages.");
   }
 
-  const response = await chrome.tabs.sendMessage(tab.id, {
-    type: "EXTRACT_ARTICLE"
+  await ensureContentScriptsInjected(tab.id);
+
+  const results = await chrome.scripting.executeScript({
+    target: { tabId: tab.id },
+    func: () => {
+      if (typeof window["__kittenArticleExtractor"] === "function") {
+        return window["__kittenArticleExtractor"]();
+      }
+      return { error: "Extractor not found in page context." };
+    }
   });
+
+  const response = results && results[0] ? results[0].result : { error: "Execution failed" };
 
   if (response?.error) {
     throw new Error(response.error);
   }
 
-  let article = response?.result;
+  let article = response;
 
   if (article?.html) {
     await setupOffscreenDocument();

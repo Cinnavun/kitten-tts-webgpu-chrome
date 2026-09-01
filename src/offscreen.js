@@ -258,15 +258,17 @@ ttsWorker.onmessage = async (e) => {
       collectedAudioBuffers.push(chunkData);
       chunksReceived++;
 
-      if (chunksReceived <= PRE_BUFFER_THRESHOLD) {
-        // Collect chunks until we have enough for a smooth start
-        pendingSchedule.push(chunkData);
-        if (chunksReceived === PRE_BUFFER_THRESHOLD) {
-          flushPendingSchedule();
+      if (!lastSynthParams?.renderBeforePlay) {
+        if (chunksReceived <= PRE_BUFFER_THRESHOLD) {
+          // Collect chunks until we have enough for a smooth start
+          pendingSchedule.push(chunkData);
+          if (chunksReceived === PRE_BUFFER_THRESHOLD) {
+            flushPendingSchedule();
+          }
+        } else {
+          // Past threshold — schedule immediately (GPU has a head start)
+          scheduleAudioBuffer(chunkData);
         }
-      } else {
-        // Past threshold — schedule immediately (GPU has a head start)
-        scheduleAudioBuffer(chunkData);
       }
     }
   }
@@ -276,17 +278,34 @@ ttsWorker.onmessage = async (e) => {
       isGenerating = false;
 
       // Flush remaining pre-buffer for short texts (fewer chunks than threshold)
-      if (pendingSchedule.length > 0) {
+      if (!lastSynthParams?.renderBeforePlay && pendingSchedule.length > 0) {
         flushPendingSchedule();
       }
 
       if (collectedAudioBuffers.length > 0) {
         if (lastSynthParams && lastSynthParams.cacheKey) {
           const mergedBlob = exportMergedWav(collectedAudioBuffers, 24000);
-          saveAudio(lastSynthParams.cacheKey, mergedBlob).catch(err => {
+          await saveAudio(lastSynthParams.cacheKey, mergedBlob).catch(err => {
             console.warn("Failed to save audio to cache:", err);
           });
         }
+        
+        if (lastSynthParams?.renderBeforePlay) {
+          const ctx = getAudioContext();
+          if (ctx.state === "suspended") await ctx.resume();
+          nextStartTime = ctx.currentTime;
+
+          for (const chunkObj of collectedAudioBuffers) {
+            scheduleAudioBuffer(chunkObj);
+          }
+
+          portSend({
+            type: "TTS_STATUS",
+            status: "Playing audio",
+            state: "playing"
+          });
+        }
+
         portSend({ type: "TTS_AUDIO_READY" });
       } else {
         portSend({
@@ -402,7 +421,8 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       voice: msg.voice,
       speed: msg.speed,
       model: msg.model,
-      cacheKey: msg.cacheKey
+      cacheKey: msg.cacheKey,
+      renderBeforePlay: msg.renderBeforePlay
     };
 
     // ── New Synthesis ───────────────────────────────────────────

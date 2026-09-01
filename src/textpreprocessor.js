@@ -112,7 +112,7 @@ const RE_SPACES = /\s+/g;
 const RE_NUMBER = /(?<![a-zA-Z])-?[\d,]+(?:\.\d+)?/g;
 const RE_ORDINAL = /\b(\d+)(st|nd|rd|th)\b/gi;
 const RE_PERCENT = /(-?[\d,]+(?:\.\d+)?)\s*%/g;
-const RE_CURRENCY = /([$€£¥₹₩₿])\s*([\d,]+(?:\.\d+)?)\s*([KMBT])?(?![a-zA-Z\d])/g;
+const RE_CURRENCY = /([$€£¥₹₩₿])\s*([\d,]+(?:\.\d+)?)\s*(thousand|thou|million|mil|billion|bil|trillion|k|m|b|t)?(?![a-zA-Z\d])/gi;
 const RE_TIME = /\b(\d{1,2}):(\d{2})(?::(\d{2}))?\s*(am|pm)?\b/gi;
 const RE_RANGE = /(?<!\w)(\d+)-(\d+)(?!\w)/g;
 const RE_MODEL_VER = /\b([a-zA-Z][a-zA-Z0-9]*)-(\d[\d.]*)(?=[^\d.]|$)/g;
@@ -175,13 +175,18 @@ function expandPercentages(text) {
 }
 
 function expandCurrency(text) {
-  const scaleMap = { K: "thousand", M: "million", B: "billion", T: "trillion" };
+  const scaleMap = { 
+    K: "thousand", THOUSAND: "thousand", THOU: "thousand",
+    M: "million", MILLION: "million", MIL: "million",
+    B: "billion", BILLION: "billion", BIL: "billion",
+    T: "trillion", TRILLION: "trillion" 
+  };
   return text.replace(RE_CURRENCY, (m, symbol, rawNum, scaleSuffix) => {
     let raw = rawNum.replace(/,/g, "");
     let unit = CURRENCY_SYMBOLS[symbol] || "";
 
     if (scaleSuffix) {
-      let scaleWord = scaleMap[scaleSuffix.toUpperCase()];
+      let scaleWord = scaleMap[scaleSuffix.toUpperCase()] || scaleSuffix.toLowerCase();
       let num = raw.includes(".") ? floatToWords(raw) : numberToWords(parseInt(raw, 10));
       return `${num} ${scaleWord} ${unit}${unit ? 's' : ''}`.trim();
     }
@@ -333,6 +338,75 @@ function expandPhoneNumbers(text) {
 
 function expandNumberAbbreviation(text) {
   return text.replace(RE_NO_NUM, "number ");
+}
+
+const PREFIX_ABBREVIATIONS = {
+  "mr": "mister", "mrs": "missus", "ms": "miss", "prof": "professor",
+  "dr": "doctor", "gen": "general", "sgt": "sergeant", "cpl": "corporal",
+  "pvt": "private", "capt": "captain", "lt": "lieutenant", "col": "colonel",
+  "maj": "major", "cmdr": "commander", "adm": "admiral", "rev": "reverend",
+  "hon": "honorable", "pres": "president", "gov": "governor", "atty": "attorney",
+  "supt": "superintendent", "det": "detective", "mgr": "manager", "msgr": "monsignor",
+  "fr": "father", "rep": "representative",
+  "st": "saint"
+};
+
+const SUFFIX_ABBREVIATIONS = {
+  "ave": "avenue", "blvd": "boulevard", "cl": "close", "ct": "court",
+  "sq": "square", "pl": "place", "st": "street", "dr": "drive",
+  "jr": "junior", "sr": "senior", "inc": "incorporated", "ltd": "limited",
+  "corp": "corporation", "co": "company"
+};
+
+const STANDALONE_ABBREVIATIONS = {
+  "vs": "versus", "etc": "et cetera", "dept": "department",
+  "univ": "university", "est": "established", "approx": "approximately",
+  "govt": "government", "assn": "association"
+};
+
+function buildCaseInsensitiveRegex(keys) {
+  return keys.map(word => word.split('').map(c => `[${c.toLowerCase()}${c.toUpperCase()}]`).join('')).join('|');
+}
+
+function expandAbbreviations(text) {
+  const matchCase = (match, expanded) => match[0] === match[0].toUpperCase() ? expanded.charAt(0).toUpperCase() + expanded.slice(1) : expanded;
+
+  // Contextual 'ft' and 'mt'
+  // 1. Preceded by a number: feet (e.g. 50 ft Queenie)
+  text = text.replace(/(^|\s)(\d+(?:\.\d+)?)\s+ft\b/gi, "$1$2 feet");
+  
+  // 2. Capitalized 'Ft' or 'Mt' before Capitalized word (e.g. Ft. Lauderdale, Mt. Everest)
+  text = text.replace(/\bFt\b(?=\s+["'\u201C\u201D\u2018\u2019]?[A-Z])/g, "Fort");
+  text = text.replace(/\bMt\b(?=\s+["'\u201C\u201D\u2018\u2019]?[A-Z])/g, "Mount");
+
+  // 3. Lowercase 'ft' before Capitalized word (e.g. Artist A ft. Artist B)
+  text = text.replace(/\bft\b(?=\s+["'\u201C\u201D\u2018\u2019]?[A-Z])/g, "featuring");
+
+  // 4. Standalone (replace anywhere)
+  const standalonePattern = new RegExp(`\\b(${Object.keys(STANDALONE_ABBREVIATIONS).join('|')})\\b`, 'gi');
+  text = text.replace(standalonePattern, (match) => {
+    return matchCase(match, STANDALONE_ABBREVIATIONS[match.toLowerCase()]);
+  });
+
+  // 2. Prefixes (require following capitalized word)
+  // Use a lookahead to allow consecutive prefixes without consuming the next word.
+  // NO 'i' flag so that [A-Z] strictly matches uppercase. Allows optional quotes before the word.
+  const prefixRegexStr = buildCaseInsensitiveRegex(Object.keys(PREFIX_ABBREVIATIONS));
+  const prefixPattern = new RegExp(`\\b(${prefixRegexStr})\\b(?=\\s+["'\\u201C\\u201D\\u2018\\u2019]?[A-Z])`, 'g');
+  text = text.replace(prefixPattern, (match) => {
+    return matchCase(match, PREFIX_ABBREVIATIONS[match.toLowerCase()]);
+  });
+
+  // 3. Suffixes (require preceding capitalized word or number)
+  // Consumes preceding word to check capitalization, then reconstructs.
+  const suffixRegexStr = buildCaseInsensitiveRegex(Object.keys(SUFFIX_ABBREVIATIONS));
+  const suffixPattern = new RegExp(`(^|\\s)([A-Z][a-zA-Z]*|\\d+(?:st|nd|rd|th|ST|ND|RD|TH)?)\\s+(${suffixRegexStr})\\b`, 'g');
+  text = text.replace(suffixPattern, (match, space, prevWord, abbr) => {
+    const expandedAbbr = matchCase(abbr, SUFFIX_ABBREVIATIONS[abbr.toLowerCase()]);
+    return `${space}${prevWord} ${expandedAbbr}`;
+  });
+
+  return text;
 }
 
 // ─────────────────────────────────────────────
@@ -612,6 +686,7 @@ export class TextPreprocessor {
       lowercase: true,
       replace_numbers: true,
       replace_floats: true,
+      expand_abbreviations: true,
       expand_contractions: false,
       expand_slang: true,
       expand_model_names: true,
@@ -655,6 +730,8 @@ export class TextPreprocessor {
     text = fixMissingSentenceSpacing(text);
     text = expandNumberAbbreviation(text);
     text = stripAbbreviationPeriods(text);
+
+    if (cfg.expand_abbreviations) text = expandAbbreviations(text);
 
     if (cfg.remove_urls) text = text.replace(RE_URL, "").trim();
     if (cfg.remove_emails) text = text.replace(RE_EMAIL, "").trim();

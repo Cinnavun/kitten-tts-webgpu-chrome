@@ -1,19 +1,14 @@
 // content.js
-chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
-  if (msg.type === "SHOW_TOAST") {
-    showToast(msg.payload);
-    sendResponse({ success: true });
-  } else if (msg.type === "EXTRACT_ARTICLE") {
-    if (typeof window.__kittenArticleExtractor === "function") {
-      const result = window.__kittenArticleExtractor();
-      sendResponse({ result });
-    } else {
-      sendResponse({ error: "Extractor not found in page context." });
-    }
-  }
-  return true;
-});
+if (!window["__kittenTTSInjected"]) {
+  window["__kittenTTSInjected"] = true;
 
+  chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
+    if (msg.type === "SHOW_TOAST") {
+      showToast(msg.payload);
+      sendResponse({ success: true });
+    }
+    return true;
+  });
 let lastToastTime = 0;
 
 function showToast(payload) {
@@ -66,4 +61,5 @@ function showToast(payload) {
     chrome.runtime?.sendMessage?.({ target: "offscreen", type: "STOP_AUDIO" });
     toast.remove();
   });
+}
 }

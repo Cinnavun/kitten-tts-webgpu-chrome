@@ -40,8 +40,8 @@ const charCount = document.getElementById("charCount");
 const debugPanel = document.querySelector("#debugPanel");
 /** @type {HTMLInputElement | null} */
 const debugToggle = document.querySelector("#debugToggle");
-/** @type {HTMLElement | null} */
-const debugLog = document.getElementById("debugLog");
+/** @type {HTMLTextAreaElement | null} */
+const debugLog = /** @type {HTMLTextAreaElement | null} */ (document.getElementById("debugLog"));
 /** @type {HTMLElement | null} */
 const debugEntryCount = document.getElementById("debugEntryCount");
 /** @type {HTMLButtonElement | null} */
@@ -384,14 +384,14 @@ resetGpuBtn?.addEventListener("click", () => {
 function renderDebugLog() {
   if (!debugLog) return;
   if (debugEntries.length === 0) {
-    debugLog.textContent = "-- no log entries yet --";
+    debugLog.value = "-- no log entries yet --";
     if (debugEntryCount) debugEntryCount.textContent = "0 entries";
     return;
   }
   if (debugEntryCount) {
     debugEntryCount.textContent = `${debugEntries.length} entr${debugEntries.length === 1 ? "y" : "ies"}`;
   }
-  debugLog.textContent = debugEntries.map(({ tag, data, ts }) => {
+  debugLog.value = debugEntries.map(({ tag, data, ts }) => {
     const time = new Date(ts).toISOString().slice(11, 23); // HH:mm:ss.mmm
     const payload = typeof data === "string" ? data : JSON.stringify(data, null, 2);
     return `[${time}] ${tag}\n${payload}`;
@@ -416,7 +416,7 @@ chrome.storage.onChanged.addListener((changes, area) => {
 debugToggle?.addEventListener("change", () => {
   chrome.storage.local.set({ KITTEN_DEBUG: debugToggle.checked });
   if (debugToggle.checked && debugEntries.length === 0) {
-    if (debugLog) debugLog.textContent = "-- debug enabled: trigger a Play to see events --";
+    if (debugLog) debugLog.value = "-- debug enabled: trigger a Play to see events --";
   }
 });
 

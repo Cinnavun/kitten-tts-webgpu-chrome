@@ -5,9 +5,14 @@ import { dbg } from "./debugLogger.js";
 const preprocessor = new TextPreprocessor();
 
 // Force high-performance GPU (e.g. dedicated Nvidia over Intel iGPU)
+// Note: powerPreference is ignored on Windows and logs a warning (https://crbug.com/369219127)
 if (navigator.gpu) {
   const origRequestAdapter = navigator.gpu.requestAdapter.bind(navigator.gpu);
   navigator.gpu.requestAdapter = (options = {}) => {
+    const isWindows = navigator.userAgent?.includes("Windows");
+    if (isWindows) {
+      return origRequestAdapter(options);
+    }
     return origRequestAdapter({ ...options, powerPreference: "high-performance" });
   };
 }
