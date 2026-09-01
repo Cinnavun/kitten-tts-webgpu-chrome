@@ -144,11 +144,11 @@ function updateActionBadge(state, text = "", tooltip = "") {
     chrome.action.setTitle({ title: `Kitten TTS Error: ${tooltip}` });
     setTimeout(() => {
       chrome.action.setBadgeText({ text: "" });
-      chrome.action.setTitle({ title: "Kitten TTS WebGPU" });
+      chrome.action.setTitle({ title: "Kitten TTS WebGPU Chrome" });
     }, 4500);
   } else if (state === "idle") {
     chrome.action.setBadgeText({ text: "" });
-    chrome.action.setTitle({ title: "Kitten TTS WebGPU" });
+    chrome.action.setTitle({ title: "Kitten TTS WebGPU Chrome" });
   }
 }
 
