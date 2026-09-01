@@ -140,77 +140,94 @@ function chunkText(text) {
     }
     rawSentences = stitched;
   } else {
-    rawSentences = text.match(/[^.!?\n]+[.!?\n]+|[^.!?\n]+$/g)?.map((s) => s.trim()) || [text];
+    // Fallback regex that includes trailing quotes/brackets
+    rawSentences = text.match(/[^.!?\n]+[.!?\n]+(?:["'’”\]})])?|[^.!?\n]+$/g)?.map((s) => s.trim()) || [text];
   }
 
   dbg("chunkText.rawSentences", { count: rawSentences.length, sentences: rawSentences });
 
-  // Preprocess each sentence individually to avoid regex catastrophic backtracking on huge strings
+  // Preprocess each sentence individually
   const sentences = rawSentences
     .map(s => preprocessor.process(s))
     .filter(s => s && /[a-zA-Z0-9]/.test(s));
 
   dbg("chunkText.preprocessed", { count: sentences.length, sentences });
 
-  // Library supports up to ~500 chars, but >250 can freeze some WebGPU implementations
-  const MAX_CHUNK_LENGTH = 420;
+  const MAX_CHUNK_LENGTH = 350;
+  const TARGET_CHUNK_LENGTH = 250; 
   const finalChunks = [];
+  let currentChunk = "";
+
+  const pushCurrentChunk = () => {
+    if (currentChunk) {
+      finalChunks.push(currentChunk.trim());
+      currentChunk = "";
+    }
+  };
+
+  const appendToCurrent = (str) => {
+    if (!str) return;
+    currentChunk = currentChunk ? `${currentChunk} ${str}` : str;
+  };
+
+  const addPiece = (piece, splitRegex, nextFallback) => {
+    piece = piece.trim();
+    if (!piece) return;
+
+    if (piece.length > MAX_CHUNK_LENGTH) {
+      if (!splitRegex) {
+        // Ultimate fallback: word-level splitting
+        const words = piece.split(/\s+/);
+        for (const w of words) {
+          let currentWord = w;
+          while (currentWord.length > MAX_CHUNK_LENGTH) {
+            const part = currentWord.substring(0, MAX_CHUNK_LENGTH);
+            if (currentChunk) pushCurrentChunk();
+            appendToCurrent(part);
+            pushCurrentChunk();
+            currentWord = currentWord.substring(MAX_CHUNK_LENGTH);
+          }
+          if (currentWord) {
+            if ((currentChunk + " " + currentWord).trim().length > MAX_CHUNK_LENGTH) {
+              pushCurrentChunk();
+            }
+            appendToCurrent(currentWord);
+          }
+        }
+        return;
+      }
+      
+      const subPieces = piece.split(splitRegex);
+      // If the regex couldn't find any split points, degrade to the next tier
+      if (subPieces.length === 1 && subPieces[0] === piece) {
+        if (nextFallback) nextFallback(piece);
+        return;
+      }
+
+      for (const sub of subPieces) {
+        if (nextFallback) nextFallback(sub);
+      }
+      return;
+    }
+
+    // Piece fits within MAX, try to pack it
+    if ((currentChunk + " " + piece).trim().length > MAX_CHUNK_LENGTH) {
+      pushCurrentChunk();
+    }
+    appendToCurrent(piece);
+    if (currentChunk.length >= TARGET_CHUNK_LENGTH) {
+      pushCurrentChunk();
+    }
+  };
+
+  const processWord = (sub) => addPiece(sub, null, null);
+  const processComma = (clause) => addPiece(clause, /(?<=[,])\s+/, processWord);
+  const processSentence = (sentence) => addPiece(sentence, /(?<=[;:—–\n])\s+/, processComma);
 
   for (const sentence of sentences) {
-    if (sentence.length <= MAX_CHUNK_LENGTH) {
-      finalChunks.push(sentence);
-    } else {
-      // Split long sentences: prefer stronger clause boundaries first
-      const clauses = sentence.split(/(?<=[;:—–\n])\s+/);
-      let current = "";
-
-      for (const clause of clauses) {
-        if (clause.length > MAX_CHUNK_LENGTH) {
-          // Sub-split on commas for very long clauses
-          const subClauses = clause.split(/(?<=[,])\s+/);
-          for (const sub of subClauses) {
-            if (sub.length > MAX_CHUNK_LENGTH) {
-              // Last resort: word-level splitting
-              if (current) { finalChunks.push(current.trim()); current = ""; }
-              const words = sub.split(/\s+/);
-              let wordBuf = "";
-              for (const w of words) {
-                // Hard limit: if a single word is insanely long, force split it
-                let currentWord = w;
-                while (currentWord.length > MAX_CHUNK_LENGTH) {
-                  const part = currentWord.substring(0, MAX_CHUNK_LENGTH);
-                  if (wordBuf) { finalChunks.push(wordBuf.trim()); wordBuf = ""; }
-                  finalChunks.push(part.trim());
-                  currentWord = currentWord.substring(MAX_CHUNK_LENGTH);
-                }
-
-                if (!currentWord) continue;
-
-                if ((wordBuf + " " + currentWord).trim().length > MAX_CHUNK_LENGTH) {
-                  if (wordBuf) finalChunks.push(wordBuf.trim());
-                  wordBuf = currentWord;
-                } else {
-                  wordBuf = wordBuf ? `${wordBuf} ${currentWord}` : currentWord;
-                }
-              }
-              if (wordBuf) current = wordBuf;
-            } else if ((current + " " + sub).trim().length > MAX_CHUNK_LENGTH) {
-              if (current) finalChunks.push(current.trim());
-              current = sub;
-            } else {
-              current = current ? `${current} ${sub}` : sub;
-            }
-          }
-        } else if ((current + " " + clause).trim().length > MAX_CHUNK_LENGTH) {
-          if (current) finalChunks.push(current.trim());
-          current = clause;
-        } else {
-          current = current ? `${current} ${clause}` : clause;
-        }
-      }
-      if (current) finalChunks.push(current.trim());
-    }
+    processSentence(sentence);
   }
+  pushCurrentChunk(); 
 
   const result = finalChunks.filter((c) => c && /[a-zA-Z0-9]/.test(c));
   dbg("chunkText.finalChunks", { count: result.length, chunks: result });

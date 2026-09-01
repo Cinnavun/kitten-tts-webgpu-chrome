@@ -449,9 +449,8 @@ function fixMissingSentenceSpacing(text) {
   shielded = shielded.replace(
     /([a-zA-Z]{2,})([.!?;:])([A-Z])/g,
     (match, before, punct, after) => {
-      // Check if 'before' is a known abbreviation (case-insensitive)
       if (punct === "." && ABBREVIATIONS.has(before.toLowerCase())) {
-        return `${before}${punct} ${after}`;
+        return `${before}${punct}${after}`;
       }
       return `${before}${punct} ${after}`;
     }
@@ -657,7 +656,13 @@ function expandAcronyms(text) {
   // Replace words that are ALL CAPS and in our list, or have no vowels
   text = text.replace(/\b([A-Z]{2,7})([sS]?)\b/g, (match, word, plural) => {
     const hasVowel = /[AEIOUY]/.test(word);
-    if (ACRONYMS_TO_SPELL.has(word) || !hasVowel) {
+    const isAllVowels = /^[AEIOU]{2,4}$/.test(word);
+
+    // Spell out if:
+    // 1. Explicitly in the whitelist
+    // 2. Has zero vowels (e.g., NFL, HTML, CSS, TTS)
+    // 3. Composed entirely of 2-4 vowels (e.g., EEI, UI, EU, AI, AAA)
+    if (ACRONYMS_TO_SPELL.has(word) || !hasVowel || isAllVowels) {
       const spelled = word.split('').join(' ');
       return plural ? `${spelled} s` : spelled;
     }
