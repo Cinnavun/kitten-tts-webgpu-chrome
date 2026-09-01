@@ -1,13 +1,18 @@
 import { KittenTTSEngine, textToInputIds, float32ToWav } from "kitten-tts-webgpu";
-import { TextPreprocessor, ABBREVIATIONS } from "./textpreprocessor.js";
+import { TextPreprocessor, ABBREVIATIONS, fixMissingSentenceSpacing } from "./textpreprocessor.js";
 import { dbg } from "./debugLogger.js";
 
 const preprocessor = new TextPreprocessor();
 
 // Force high-performance GPU (e.g. dedicated Nvidia over Intel iGPU)
+// Note: powerPreference is ignored on Windows and logs a warning (https://crbug.com/369219127)
 if (navigator.gpu) {
   const origRequestAdapter = navigator.gpu.requestAdapter.bind(navigator.gpu);
   navigator.gpu.requestAdapter = (options = {}) => {
+    const isWindows = navigator.userAgent?.includes("Windows");
+    if (isWindows) {
+      return origRequestAdapter(options);
+    }
     return origRequestAdapter({ ...options, powerPreference: "high-performance" });
   };
 }
@@ -102,31 +107,23 @@ async function getEngine(model = "nano", onProgress) {
 
 // ─── Text Chunking ─────────────────────────────────────────────────
 
-/**
- * Preprocess and split text into natural sentence-level chunks for TTS.
- * Uses Intl.Segmenter for sentence detection, falls back to regex.
- * Long sentences are split at clause boundaries (semicolons/colons first, then commas).
- */
-function chunkText(text) {
-  if (!text || typeof text !== "string") return [];
-
-  // Sentence segmentation on raw text first
+function segmentSentences(para) {
   let rawSentences = [];
   if (typeof Intl !== "undefined" && Intl.Segmenter) {
     const segmenter = new Intl.Segmenter("en", { granularity: "sentence" });
-    const segments = Array.from(segmenter.segment(text))
+    const segments = Array.from(segmenter.segment(para))
       .map((s) => s.segment.trim())
       .filter((s) => s.length > 0);
 
-    // Stitch sentences back together if the previous one ends with an abbreviation
+    const DOTTED_INITIALISM = /(?:\b[A-Za-z]\.){2,}\s*$/;
     let stitched = [];
     for (let i = 0; i < segments.length; i++) {
       let seg = segments[i];
       if (stitched.length > 0) {
         let prev = stitched[stitched.length - 1];
-        // Match a word followed by a period at the end of the previous segment
         let match = prev.match(/([a-zA-Z]+)\.$/);
-        if (match && ABBREVIATIONS.has(match[1].toLowerCase())) {
+
+        if (DOTTED_INITIALISM.test(prev) || (match && ABBREVIATIONS.has(match[1].toLowerCase()))) {
           stitched[stitched.length - 1] = prev + " " + seg;
           continue;
         }
@@ -135,79 +132,108 @@ function chunkText(text) {
     }
     rawSentences = stitched;
   } else {
-    rawSentences = text.match(/[^.!?\n]+[.!?\n]+|[^.!?\n]+$/g)?.map((s) => s.trim()) || [text];
+    rawSentences = para.match(/[^.!?\n]+[.!?\n]+(?:["'’”\]})])?|[^.!?\n]+$/g)?.map((s) => s.trim()) || [para];
   }
+  return rawSentences;
+}
 
-  dbg("chunkText.rawSentences", { count: rawSentences.length, sentences: rawSentences });
+/**
+ * Preprocess and split text into natural sentence-level chunks for TTS.
+ * Uses Intl.Segmenter for sentence detection, falls back to regex.
+ * Long sentences are split at clause boundaries (semicolons/colons first, then commas).
+ */
+function chunkText(text) {
+  if (!text || typeof text !== "string") return [];
 
-  // Preprocess each sentence individually to avoid regex catastrophic backtracking on huge strings
-  const sentences = rawSentences
-    .map(s => preprocessor.process(s))
-    .filter(s => s && /[a-zA-Z0-9]/.test(s));
+  // Fix any missing spacing before segmentation so the Segmenter can do its job
+  text = fixMissingSentenceSpacing(text);
 
-  dbg("chunkText.preprocessed", { count: sentences.length, sentences });
-
-  // Library supports up to ~500 chars, but >250 can freeze some WebGPU implementations
-  const MAX_CHUNK_LENGTH = 420;
+  const MAX_CHUNK_LENGTH = 400;
+  const TARGET_CHUNK_LENGTH = 180;
   const finalChunks = [];
+  let currentChunk = "";
 
-  for (const sentence of sentences) {
-    if (sentence.length <= MAX_CHUNK_LENGTH) {
-      finalChunks.push(sentence);
-    } else {
-      // Split long sentences: prefer stronger clause boundaries first
-      const clauses = sentence.split(/(?<=[;:—–\n])\s+/);
-      let current = "";
-
-      for (const clause of clauses) {
-        if (clause.length > MAX_CHUNK_LENGTH) {
-          // Sub-split on commas for very long clauses
-          const subClauses = clause.split(/(?<=[,])\s+/);
-          for (const sub of subClauses) {
-            if (sub.length > MAX_CHUNK_LENGTH) {
-              // Last resort: word-level splitting
-              if (current) { finalChunks.push(current.trim()); current = ""; }
-              const words = sub.split(/\s+/);
-              let wordBuf = "";
-              for (const w of words) {
-                // Hard limit: if a single word is insanely long, force split it
-                let currentWord = w;
-                while (currentWord.length > MAX_CHUNK_LENGTH) {
-                  const part = currentWord.substring(0, MAX_CHUNK_LENGTH);
-                  if (wordBuf) { finalChunks.push(wordBuf.trim()); wordBuf = ""; }
-                  finalChunks.push(part.trim());
-                  currentWord = currentWord.substring(MAX_CHUNK_LENGTH);
-                }
-
-                if (!currentWord) continue;
-
-                if ((wordBuf + " " + currentWord).trim().length > MAX_CHUNK_LENGTH) {
-                  if (wordBuf) finalChunks.push(wordBuf.trim());
-                  wordBuf = currentWord;
-                } else {
-                  wordBuf = wordBuf ? `${wordBuf} ${currentWord}` : currentWord;
-                }
-              }
-              if (wordBuf) current = wordBuf;
-            } else if ((current + " " + sub).trim().length > MAX_CHUNK_LENGTH) {
-              if (current) finalChunks.push(current.trim());
-              current = sub;
-            } else {
-              current = current ? `${current} ${sub}` : sub;
-            }
-          }
-        } else if ((current + " " + clause).trim().length > MAX_CHUNK_LENGTH) {
-          if (current) finalChunks.push(current.trim());
-          current = clause;
-        } else {
-          current = current ? `${current} ${clause}` : clause;
-        }
-      }
-      if (current) finalChunks.push(current.trim());
+  const pushCurrentChunk = () => {
+    const t = currentChunk.trim();
+    currentChunk = "";
+    if (t && /[a-zA-Z0-9]/.test(t)) {
+      finalChunks.push(t);
     }
-  }
+  };
 
-  const result = finalChunks.filter((c) => c && /[a-zA-Z0-9]/.test(c));
+  const appendToCurrent = (str) => {
+    if (!str) return;
+    currentChunk = currentChunk ? `${currentChunk} ${str}` : str;
+  };
+
+  const addPiece = (piece, splitRegex, nextFallback) => {
+    piece = piece.trim();
+    if (!piece) return;
+
+    if (piece.length > MAX_CHUNK_LENGTH) {
+      if (!splitRegex) {
+        const words = piece.split(/\s+/);
+        for (const w of words) {
+          let currentWord = w;
+          while (currentWord.length > MAX_CHUNK_LENGTH) {
+            const part = currentWord.substring(0, MAX_CHUNK_LENGTH);
+            if (currentChunk) pushCurrentChunk();
+            appendToCurrent(part);
+            pushCurrentChunk();
+            currentWord = currentWord.substring(MAX_CHUNK_LENGTH);
+          }
+          if (currentWord) {
+            if ((currentChunk + " " + currentWord).trim().length > MAX_CHUNK_LENGTH) {
+              pushCurrentChunk();
+            }
+            appendToCurrent(currentWord);
+          }
+        }
+        return;
+      }
+
+      const subPieces = piece.split(splitRegex);
+      if (subPieces.length === 1 && subPieces[0] === piece) {
+        if (nextFallback) nextFallback(piece);
+        return;
+      }
+
+      for (const sub of subPieces) {
+        if (nextFallback) nextFallback(sub);
+      }
+      return;
+    }
+
+    if ((currentChunk + " " + piece).trim().length > MAX_CHUNK_LENGTH) {
+      pushCurrentChunk();
+    }
+    appendToCurrent(piece);
+    if (currentChunk.length >= TARGET_CHUNK_LENGTH) {
+      pushCurrentChunk();
+    }
+  };
+
+  const processWord = (sub) => addPiece(sub, null, null);
+  const processComma = (clause) => addPiece(clause, /(?<=[,])\s+/, processWord);
+  const processSentence = (sentence) => addPiece(sentence, /(?<=[;:—–\n])\s+/, processComma);
+
+  const paragraphEnds = new Set();
+  
+  for (const para of text.split(/\n{2,}/).map(p => p.trim()).filter(Boolean)) {
+    const sentences = segmentSentences(para)
+      .map(s => preprocessor.process(s))
+      .filter(s => s && /[a-zA-Z0-9]/.test(s));
+
+    for (const sentence of sentences) {
+      processSentence(sentence);
+    }
+    pushCurrentChunk();
+    if (finalChunks.length) paragraphEnds.add(finalChunks.length - 1);
+  }
+  
+  pushCurrentChunk();
+
+  const result = finalChunks.map((t, i) => ({ text: t, paraEnd: paragraphEnds.has(i) }));
   dbg("chunkText.finalChunks", { count: result.length, chunks: result });
   return result;
 }
@@ -251,6 +277,25 @@ function synthesizeWithTimeout(engine, text, voice, speed, timeoutMs = 60000) {
 
 self.onmessage = async (e) => {
   const msg = e.data;
+
+  if (msg.type === "RESET_ENGINE") {
+    isCancelled = true;
+    for (const [model, engine] of engineCache.entries()) {
+      try {
+        if (typeof engine.free === 'function') engine.free();
+        if (typeof engine.destroy === 'function') engine.destroy();
+        // WebGPU devices can be explicitly destroyed
+        if (engine.device && typeof engine.device.destroy === 'function') {
+          engine.device.destroy();
+        }
+      } catch (err) {
+        console.warn("[KittenTTS Worker] Error during explicit engine destruction:", err);
+      }
+    }
+    engineCache.clear();
+    engineLoading.clear();
+    return;
+  }
 
   // Store extension base URL for constructing local model paths
   if (msg.extensionBaseUrl) {
@@ -313,9 +358,9 @@ self.onmessage = async (e) => {
         });
 
         try {
-          dbg("synthesize.chunk", { index: i, total: chunks.length, chunk });
+          dbg("synthesize.chunk", { index: i, total: chunks.length, chunk: chunk.text });
           const blob = await synthesizeWithTimeout(
-            engine, chunk, voice || "Jasper", speed || 1.0
+            engine, chunk.text, voice || "Jasper", speed || 1.0
           );
 
           if (isCancelled) break;
@@ -326,8 +371,10 @@ self.onmessage = async (e) => {
 
             let pauseAfter = 0;
             if (i < chunks.length - 1) {
-              const chunkStr = chunk.trim();
-              if (/[.!?]["')\]]*$/.test(chunkStr)) {
+              const chunkStr = chunk.text.trim();
+              if (chunk.paraEnd) {
+                pauseAfter = 0.45;
+              } else if (/[.!?]["')\]]*$/.test(chunkStr)) {
                 pauseAfter = 0.25;
               } else if (/[,;:]["')\]]*$/.test(chunkStr)) {
                 pauseAfter = 0.1;

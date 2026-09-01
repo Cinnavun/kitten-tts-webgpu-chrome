@@ -12,6 +12,10 @@ const modelSelect = document.querySelector("#modelSelect");
 const speedInput = document.querySelector("#speedInput");
 /** @type {HTMLElement | null} */
 const speedValue = document.getElementById("speedValue");
+/** @type {HTMLInputElement | null} */
+const renderBeforePlayToggle = document.querySelector("#renderBeforePlayToggle");
+/** @type {HTMLInputElement | null} */
+const autoplayToggle = document.querySelector("#autoplayToggle");
 /** @type {HTMLTextAreaElement | null} */
 const textInput = document.querySelector("#textInput");
 /** @type {HTMLButtonElement | null} */
@@ -32,6 +36,8 @@ const progressContainer = document.getElementById("progressContainer");
 const progressFill = document.getElementById("progressFill");
 /** @type {HTMLButtonElement | null} */
 const resetGpuBtn = document.querySelector("#resetGpuBtn");
+/** @type {HTMLButtonElement | null} */
+const clearAudioCacheBtn = document.querySelector("#clearAudioCacheBtn");
 /** @type {HTMLElement | null} */
 const charCount = document.getElementById("charCount");
 
@@ -40,8 +46,8 @@ const charCount = document.getElementById("charCount");
 const debugPanel = document.querySelector("#debugPanel");
 /** @type {HTMLInputElement | null} */
 const debugToggle = document.querySelector("#debugToggle");
-/** @type {HTMLElement | null} */
-const debugLog = document.getElementById("debugLog");
+/** @type {HTMLTextAreaElement | null} */
+const debugLog = /** @type {HTMLTextAreaElement | null} */ (document.getElementById("debugLog"));
 /** @type {HTMLElement | null} */
 const debugEntryCount = document.getElementById("debugEntryCount");
 /** @type {HTMLButtonElement | null} */
@@ -86,9 +92,9 @@ themeSelect?.addEventListener("change", (e) => {
   applyTheme(target.value);
 });
 
-// 2. Load Saved Preferences (voice, model, speed)
+// 2. Load Saved Preferences (voice, model, speed, renderBeforePlay, autoplay)
 chrome.storage.local.get(
-  { preferredVoice: "Jasper", preferredModel: "nano", preferredSpeed: "1.0" },
+  { preferredVoice: "Jasper", preferredModel: "nano", preferredSpeed: "1.0", renderBeforePlay: false, autoplay: true },
   (items) => {
     if (voiceSelect) voiceSelect.value = items.preferredVoice;
     if (modelSelect) modelSelect.value = items.preferredModel;
@@ -96,16 +102,26 @@ chrome.storage.local.get(
       speedInput.value = items.preferredSpeed;
       if (speedValue) speedValue.textContent = `${items.preferredSpeed}x`;
     }
+    if (renderBeforePlayToggle) {
+      renderBeforePlayToggle.checked = items.renderBeforePlay;
+    }
+    if (autoplayToggle) {
+      autoplayToggle.checked = items.autoplay;
+      autoplayToggle.disabled = !items.renderBeforePlay;
+    }
+    checkCacheStatus(); // Initial check
   },
 );
 
 // 3. Save Preferences on Change
 voiceSelect?.addEventListener("change", () => {
   chrome.storage.local.set({ preferredVoice: voiceSelect.value });
+  checkCacheStatus();
 });
 
 modelSelect?.addEventListener("change", () => {
   chrome.storage.local.set({ preferredModel: modelSelect.value });
+  checkCacheStatus();
 });
 
 const saveSpeed = debounce((value) => {
@@ -115,7 +131,68 @@ const saveSpeed = debounce((value) => {
 speedInput?.addEventListener("input", () => {
   if (speedValue) speedValue.textContent = `${speedInput.value}x`;
   saveSpeed(speedInput.value);
+  checkCacheStatus();
 });
+
+renderBeforePlayToggle?.addEventListener("change", () => {
+  if (renderBeforePlayToggle) {
+    chrome.storage.local.set({ renderBeforePlay: renderBeforePlayToggle.checked });
+    if (autoplayToggle) {
+      autoplayToggle.disabled = !renderBeforePlayToggle.checked;
+    }
+  }
+});
+
+autoplayToggle?.addEventListener("change", () => {
+  if (autoplayToggle) {
+    chrome.storage.local.set({ autoplay: autoplayToggle.checked });
+  }
+});
+
+// Helpers for cache checking
+async function getBlobDuration(blob) {
+  return new Promise((resolve) => {
+    const audio = new Audio();
+    audio.src = URL.createObjectURL(blob);
+    audio.onloadedmetadata = () => {
+      resolve(audio.duration);
+      URL.revokeObjectURL(audio.src);
+    };
+    audio.onerror = () => {
+      resolve(0);
+      URL.revokeObjectURL(audio.src);
+    };
+  });
+}
+
+function formatDuration(seconds) {
+  if (!seconds || !isFinite(seconds)) return "0:00";
+  const m = Math.floor(seconds / 60);
+  const s = Math.floor(seconds % 60);
+  return `${m}:${s.toString().padStart(2, '0')}`;
+}
+
+const checkCacheStatus = debounce(async () => {
+  const text = (textInput?.value || "").trim();
+  const voice = voiceSelect?.value || "Jasper";
+  const speed = parseFloat(speedInput?.value || "1.0");
+  const model = modelSelect?.value || "nano";
+
+  if (!text) {
+    if (playBtn) playBtn.textContent = "▶ Generate Audio";
+    return;
+  }
+
+  const cacheKey = await generateCacheKey(text, voice, speed, model);
+  const cachedBlob = await getAudio(cacheKey);
+
+  if (cachedBlob && playBtn) {
+    const duration = await getBlobDuration(cachedBlob);
+    playBtn.textContent = `▶ Listen to Audio (${formatDuration(duration)})`;
+  } else if (playBtn) {
+    playBtn.textContent = "▶ Generate Audio";
+  }
+}, 300);
 
 // 4. Character Count & Clear Input
 function updateCharCount() {
@@ -132,7 +209,10 @@ function updateCharCount() {
 }
 
 const debouncedUpdateCharCount = debounce(updateCharCount, 300);
-textInput?.addEventListener("input", debouncedUpdateCharCount);
+textInput?.addEventListener("input", () => {
+  debouncedUpdateCharCount();
+  checkCacheStatus();
+});
 
 clearBtn?.addEventListener("click", () => {
   if (textInput) {
@@ -158,6 +238,8 @@ async function startPlayback(textToPlay) {
   const voice = voiceSelect?.value || "Jasper";
   const speed = parseFloat(speedInput?.value || "1.0");
   const model = modelSelect?.value || "nano";
+  const renderBeforePlay = renderBeforePlayToggle?.checked || false;
+  const autoplay = autoplayToggle?.checked ?? true;
 
   if (!text) {
     if (statusText)
@@ -184,7 +266,9 @@ async function startPlayback(textToPlay) {
       voice,
       speed,
       model,
-      cacheKey
+      cacheKey,
+      renderBeforePlay,
+      autoplay
     });
   }
 
@@ -194,7 +278,13 @@ async function startPlayback(textToPlay) {
   if (progressContainer) progressContainer.style.display = "block";
   if (progressFill) progressFill.style.width = "0%";
   if (statusDot) statusDot.className = "status-dot busy";
-  if (statusText) statusText.textContent = cachedBlob ? "Playing cached audio..." : "Synthesizing with WebGPU...";
+  if (statusText) {
+    if (cachedBlob) {
+      statusText.textContent = "Playing cached audio...";
+    } else {
+      statusText.textContent = autoplay ? "Synthesizing and playing..." : "Generating audio to cache...";
+    }
+  }
 }
 
 // 6. Scan & Auto-Play Article Action
@@ -335,9 +425,9 @@ function resetControls(statusMsg) {
       if (stopBtn) stopBtn.disabled = false;
     } else if (msg.type === "TTS_STATUS") {
       if (msg.state === "idle") {
-        resetControls("Finished playing.");
+        resetControls(msg.status || "Finished playing.");
       } else if (msg.state === "stopped") {
-        resetControls("Stopped.");
+        resetControls(msg.status || "Stopped.");
       } else if (msg.state === "error") {
         resetControls(msg.status || "Error occurred");
       } else if (msg.state === "playing") {
@@ -348,6 +438,7 @@ function resetControls(statusMsg) {
       }
     } else if (msg.type === "TTS_AUDIO_READY") {
       if (downloadBtn) downloadBtn.style.display = "block";
+      checkCacheStatus();
     } else if (msg.type === "TTS_DEBUG_LOG") {
       // Append to in-panel debug log if the panel exists
       if (debugPanel && debugLog) {
@@ -376,6 +467,13 @@ resetGpuBtn?.addEventListener("click", () => {
   });
 });
 
+clearAudioCacheBtn?.addEventListener("click", () => {
+  if (statusText) statusText.textContent = "Clearing audio cache...";
+  if (statusDot) statusDot.className = "status-dot busy";
+  chrome.runtime.sendMessage({ type: "CLEAR_AUDIO_CACHE" }, (res) => {
+    resetControls(res?.message || "Audio cache cleared.");
+  });
+});
 
 // ── 10. Debug Panel ────────────────────────────────────────────────────────
 
@@ -384,14 +482,14 @@ resetGpuBtn?.addEventListener("click", () => {
 function renderDebugLog() {
   if (!debugLog) return;
   if (debugEntries.length === 0) {
-    debugLog.textContent = "-- no log entries yet --";
+    debugLog.value = "-- no log entries yet --";
     if (debugEntryCount) debugEntryCount.textContent = "0 entries";
     return;
   }
   if (debugEntryCount) {
     debugEntryCount.textContent = `${debugEntries.length} entr${debugEntries.length === 1 ? "y" : "ies"}`;
   }
-  debugLog.textContent = debugEntries.map(({ tag, data, ts }) => {
+  debugLog.value = debugEntries.map(({ tag, data, ts }) => {
     const time = new Date(ts).toISOString().slice(11, 23); // HH:mm:ss.mmm
     const payload = typeof data === "string" ? data : JSON.stringify(data, null, 2);
     return `[${time}] ${tag}\n${payload}`;
@@ -416,7 +514,7 @@ chrome.storage.onChanged.addListener((changes, area) => {
 debugToggle?.addEventListener("change", () => {
   chrome.storage.local.set({ KITTEN_DEBUG: debugToggle.checked });
   if (debugToggle.checked && debugEntries.length === 0) {
-    if (debugLog) debugLog.textContent = "-- debug enabled: trigger a Play to see events --";
+    if (debugLog) debugLog.value = "-- debug enabled: trigger a Play to see events --";
   }
 });
 

@@ -54,3 +54,14 @@ export async function getAudio(key) {
     request.onerror = () => reject(request.error);
   });
 }
+
+export async function clearAudioCache() {
+  const db = await openDB();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(STORE_NAME, "readwrite");
+    const store = tx.objectStore(STORE_NAME);
+    const request = store.clear();
+    request.onsuccess = () => resolve(undefined);
+    request.onerror = () => reject(request.error);
+  });
+}

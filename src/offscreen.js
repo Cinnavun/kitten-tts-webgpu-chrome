@@ -2,6 +2,7 @@
 import { Readability } from "@mozilla/readability";
 import { dbg } from "./debugLogger.js";
 import { saveAudio, getAudio } from "./db.js";
+import { cleanArticleText, cleanPlainText } from "./articleCleaner.js";
 
 /**
  * Debug helper for the offscreen context.
@@ -26,6 +27,7 @@ let activeSources = [];
 let collectedAudioBuffers = [];
 let isCancelled = false;
 let isGenerating = false;
+let isPlaybackStopped = false;
 let generationId = 0;
 
 /** Last synthesis parameters — used to detect cache hits for instant replay */
@@ -53,7 +55,7 @@ function portSend(msg) {
   } catch (e) {
     console.warn("Port send failed, reconnecting...", e);
     connectPort();
-    try { port.postMessage(msg); } catch (_) {}
+    try { port.postMessage(msg); } catch (_) { }
   }
 }
 
@@ -62,7 +64,7 @@ const PRE_BUFFER_THRESHOLD = 1;
 let chunksReceived = 0;
 let pendingSchedule = [];
 
-const ttsWorker = new Worker("dist/worker.js", { type: "module" });
+let ttsWorker = new Worker("dist/worker.js", { type: "module" });
 
 let keepAliveOsc = null;
 let audioUnlockPromise = null;
@@ -70,7 +72,7 @@ let audioUnlockPromise = null;
 function getAudioContext() {
   if (!audioCtx || audioCtx.state === "closed") {
     audioCtx = new AudioContext({ sampleRate: 24000 });
-    
+
     // Play a continuous silent oscillator to keep the AudioContext "active".
     keepAliveOsc = audioCtx.createOscillator();
     const gainNode = audioCtx.createGain();
@@ -78,7 +80,7 @@ function getAudioContext() {
     keepAliveOsc.connect(gainNode);
     gainNode.connect(audioCtx.destination);
     keepAliveOsc.start();
-    
+
     // Attempt to unlock AudioContext Autoplay Policy in Chrome
     audioUnlockPromise = (async () => {
       try {
@@ -127,9 +129,8 @@ function scheduleAudioBuffer(chunkObj) {
  * Stop current audio playback. Does NOT clear the audio buffer cache
  * so that replay can re-use previously generated audio.
  */
-function stopPlayback(broadcast = true) {
-  isCancelled = true;
-  isGenerating = false;
+function stopPlayback(abortGeneration = false, broadcast = true) {
+  isPlaybackStopped = true;
   nextStartTime = 0;
   for (const source of activeSources) {
     try {
@@ -139,21 +140,25 @@ function stopPlayback(broadcast = true) {
   }
   activeSources = [];
   pendingSchedule = [];
-  
+
   // DO NOT destroy keepAliveOsc here! It needs to run continuously
   // for the lifetime of the AudioContext.
-  
+
   if (audioCtx && audioCtx.state !== "closed") {
     // We intentionally don't close the audioCtx so we can reuse it
   }
 
-  ttsWorker.postMessage({ type: "STOP_AUDIO" });
+  if (abortGeneration) {
+    isCancelled = true;
+    isGenerating = false;
+    ttsWorker.postMessage({ type: "STOP_AUDIO" });
+  }
 
   if (broadcast) {
     portSend({
       type: "TTS_STATUS",
-      status: "Stopped.",
-      state: "stopped"
+      status: (isGenerating && !abortGeneration) ? "Playback stopped. Generating in background..." : "Stopped.",
+      state: (isGenerating && !abortGeneration) ? "busy" : "stopped"
     });
   }
 }
@@ -163,7 +168,10 @@ function stopPlayback(broadcast = true) {
  * Called when the pre-buffer threshold is reached or when synthesis completes for short texts.
  */
 function flushPendingSchedule() {
-  if (pendingSchedule.length === 0) return;
+  if (pendingSchedule.length === 0 || isPlaybackStopped) {
+    pendingSchedule = [];
+    return;
+  }
 
   const ctx = getAudioContext();
   if (ctx.state === "suspended") ctx.resume();
@@ -181,7 +189,7 @@ function flushPendingSchedule() {
   });
 }
 
-function exportMergedWav(chunks, sampleRate = 24000) {
+async function exportMergedWav(chunks, sampleRate = 24000) {
   const totalSamples = chunks.reduce((sum, chunk) => {
     const pauseSamples = Math.floor((chunk.pauseAfter || 0) * sampleRate);
     return sum + chunk.buffer.length + pauseSamples;
@@ -204,16 +212,28 @@ function exportMergedWav(chunks, sampleRate = 24000) {
   view.setUint16(34, 16, true);
   writeString(36, "data");
   view.setUint32(40, totalSamples * 2, true);
-  let offset = 44;
+
+  // Use Int16Array for ultra-fast PCM writes
+  const pcm16 = new Int16Array(wavBuffer, 44, totalSamples);
+  let pcmOffset = 0;
+  let chunkIndex = 0;
+
   for (const chunk of chunks) {
     const channelData = chunk.buffer.getChannelData(0);
-    for (let i = 0; i < channelData.length; i++, offset += 2) {
-      const s = Math.max(-1, Math.min(1, channelData[i]));
-      view.setInt16(offset, s < 0 ? s * 0x8000 : s * 0x7fff, true);
+    const len = channelData.length;
+    for (let i = 0; i < len; i++) {
+      const s = channelData[i];
+      // Faster clamp and scale
+      pcm16[pcmOffset++] = (s < -1 ? -1 : s > 1 ? 1 : s) * 0x7fff;
     }
     const pauseSamples = Math.floor((chunk.pauseAfter || 0) * sampleRate);
-    for (let i = 0; i < pauseSamples; i++, offset += 2) {
-      view.setInt16(offset, 0, true);
+    for (let i = 0; i < pauseSamples; i++) {
+      pcm16[pcmOffset++] = 0;
+    }
+
+    // Yield to the event loop every 20 chunks to prevent freezing the extension process
+    if (++chunkIndex % 20 === 0) {
+      await new Promise(r => setTimeout(r, 0));
     }
   }
   return new Blob([wavBuffer], { type: "audio/wav" });
@@ -258,15 +278,17 @@ ttsWorker.onmessage = async (e) => {
       collectedAudioBuffers.push(chunkData);
       chunksReceived++;
 
-      if (chunksReceived <= PRE_BUFFER_THRESHOLD) {
-        // Collect chunks until we have enough for a smooth start
-        pendingSchedule.push(chunkData);
-        if (chunksReceived === PRE_BUFFER_THRESHOLD) {
-          flushPendingSchedule();
+      if (!lastSynthParams?.renderBeforePlay && !isPlaybackStopped) {
+        if (chunksReceived <= PRE_BUFFER_THRESHOLD) {
+          // Collect chunks until we have enough for a smooth start
+          pendingSchedule.push(chunkData);
+          if (chunksReceived === PRE_BUFFER_THRESHOLD) {
+            flushPendingSchedule();
+          }
+        } else {
+          // Past threshold — schedule immediately (GPU has a head start)
+          scheduleAudioBuffer(chunkData);
         }
-      } else {
-        // Past threshold — schedule immediately (GPU has a head start)
-        scheduleAudioBuffer(chunkData);
       }
     }
   }
@@ -276,17 +298,34 @@ ttsWorker.onmessage = async (e) => {
       isGenerating = false;
 
       // Flush remaining pre-buffer for short texts (fewer chunks than threshold)
-      if (pendingSchedule.length > 0) {
+      if (!lastSynthParams?.renderBeforePlay && pendingSchedule.length > 0) {
         flushPendingSchedule();
       }
 
       if (collectedAudioBuffers.length > 0) {
         if (lastSynthParams && lastSynthParams.cacheKey) {
-          const mergedBlob = exportMergedWav(collectedAudioBuffers, 24000);
-          saveAudio(lastSynthParams.cacheKey, mergedBlob).catch(err => {
+          const mergedBlob = await exportMergedWav(collectedAudioBuffers, 24000);
+          await saveAudio(lastSynthParams.cacheKey, mergedBlob).catch(err => {
             console.warn("Failed to save audio to cache:", err);
           });
         }
+
+        if (lastSynthParams?.autoplay !== false && !isPlaybackStopped) {
+          const ctx = getAudioContext();
+          if (ctx.state === "suspended") await ctx.resume();
+          nextStartTime = ctx.currentTime;
+
+          for (const chunkObj of collectedAudioBuffers) {
+            scheduleAudioBuffer(chunkObj);
+          }
+
+          portSend({
+            type: "TTS_STATUS",
+            status: "Playing audio",
+            state: "playing"
+          });
+        }
+
         portSend({ type: "TTS_AUDIO_READY" });
       } else {
         portSend({
@@ -311,33 +350,37 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     try {
       const parser = new DOMParser();
       const doc = parser.parseFromString(msg.html, "text/html");
-      const reader = new Readability(doc, { maxElemsToParse: 5000 });
+
+      // Kill obvious non-content regions BEFORE Readability scores the page
+      doc.querySelectorAll(
+        "script, style, noscript, template, iframe, svg, form, nav, aside, footer, " +
+        "[aria-hidden='true'], " +
+        "[class*='newsletter' i], [class*='subscribe' i], [class*='signup' i], " +
+        "[class*='promo' i], [class*='recirc' i]"
+      ).forEach((el) => el.remove());
+
+      const reader = new Readability(doc, { maxElemsToParse: 10000 });
       const parsed = reader.parse();
 
-      if (parsed && parsed.textContent) {
-        const cleanText = parsed.textContent
-          .split("\n")
-          .map((line) => line.trim())
-          .filter((line) => line.length > 0)
-          .join("\n\n");
+      if (parsed && parsed.content) {
+        const cleanText = cleanArticleText(parsed.content);
 
         offscreenDbg("readability.parsed", {
           title: parsed.title,
           byline: parsed.byline,
-          rawLength: parsed.textContent.length,
+          rawLength: parsed.content.length,
           cleanLength: cleanText.length,
-          preview: cleanText.slice(0, 400)
+          fullText: cleanText
         });
 
         sendResponse({
           title: parsed.title || msg.title || "",
           byline: parsed.byline || "",
-          text: parsed.title && cleanText ? `${parsed.title}.\n\n${cleanText}` : cleanText
+          text: cleanText ? `${parsed.title ? parsed.title + '.\n\n' : ''}${cleanText}` : cleanText
         });
       } else {
-        // Fallback to body text
         doc.querySelectorAll("script, style, noscript, template, iframe, svg").forEach(el => el.remove());
-        const fallbackText = doc.body?.textContent?.trim() || "";
+        const fallbackText = cleanPlainText(doc.body?.textContent || "");
         offscreenDbg("readability.fallback", { length: fallbackText.length, preview: fallbackText.slice(0, 200) });
         sendResponse({
           title: msg.title || "",
@@ -363,9 +406,10 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
 
   if (msg.type === "PLAY_CACHED") {
     const thisGenId = ++generationId;
-    stopPlayback(false);
+    stopPlayback(true, false);
     isCancelled = false;
     isGenerating = false;
+    isPlaybackStopped = false;
     collectedAudioBuffers = [];
     chunksReceived = 0;
     pendingSchedule = [];
@@ -380,7 +424,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
           nextStartTime = ctx.currentTime;
           const audioBuffer = await ctx.decodeAudioData(arrayBuf);
           scheduleAudioBuffer({ buffer: audioBuffer, pauseAfter: 0 });
-          
+
           portSend({ type: "TTS_STATUS", status: "Playing audio", state: "playing" });
           portSend({ type: "TTS_AUDIO_READY" });
         } else {
@@ -391,7 +435,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
         portSend({ type: "TTS_STATUS", status: "Error playing cache.", state: "error" });
       }
     })();
-    
+
     sendResponse({ success: true, replayed: true });
     return true;
   }
@@ -402,45 +446,63 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       voice: msg.voice,
       speed: msg.speed,
       model: msg.model,
-      cacheKey: msg.cacheKey
+      cacheKey: msg.cacheKey,
+      renderBeforePlay: msg.renderBeforePlay
     };
 
     // ── New Synthesis ───────────────────────────────────────────
     const thisGenId = ++generationId;
-    stopPlayback(false);
+    stopPlayback(true, false);
 
     isCancelled = false;
     isGenerating = true;
+    isPlaybackStopped = false;
     collectedAudioBuffers = [];  // Clear cache for new synthesis
     chunksReceived = 0;
     pendingSchedule = [];
 
     lastSynthParams = incomingParams;
 
-    const ctx = getAudioContext();
-    if (ctx.state === "suspended") {
-      ctx.resume();
-    }
-    nextStartTime = ctx.currentTime;
+    (async () => {
+      const ctx = getAudioContext();
+      if (ctx.state === "suspended") {
+        await ctx.resume();
+      }
+      if (audioUnlockPromise) {
+        await audioUnlockPromise;
+      }
+      nextStartTime = ctx.currentTime;
 
-    // Kick off worker with extension base URL for local model resolution
-    ttsWorker.postMessage({
-      type: "PLAY_TEXT",
-      text: msg.text,
-      voice: msg.voice,
-      speed: msg.speed,
-      model: msg.model,
-      generationId: thisGenId,
-      extensionBaseUrl: chrome.runtime.getURL("")
-    });
+      // Kick off worker with extension base URL for local model resolution
+      ttsWorker.postMessage({
+        type: "PLAY_TEXT",
+        text: msg.text,
+        voice: msg.voice,
+        speed: msg.speed,
+        model: msg.model,
+        generationId: thisGenId,
+        extensionBaseUrl: chrome.runtime.getURL("")
+      });
 
-    sendResponse({ success: true });
+      sendResponse({ success: true });
+    })();
+
     return true;
   }
 
   if (msg.type === "STOP_AUDIO") {
-    stopPlayback();
+    stopPlayback(false, true);
     sendResponse({ stopped: true });
+    return true;
+  }
+
+  if (msg.type === "RESET_WORKER") {
+    ttsWorker.postMessage({ type: "RESET_ENGINE" });
+    // Give it a tiny moment to process the free/destroy before forced termination
+    setTimeout(() => {
+      ttsWorker.terminate();
+      sendResponse({ success: true });
+    }, 50);
     return true;
   }
 });

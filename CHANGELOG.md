@@ -2,6 +2,24 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.3.3] - 2026-09-01
+
+### UI / UX Improvements
+- **Voice selection reordered** — Kiki is now the default female voice (listed first), and Bella has been moved to the bottom.
+- **Polished toggle switches** — Upgraded the "Pre-render full audio before playback" and newly added "Autoplay" options to use modern CSS toggle switches instead of native checkboxes.
+- **Dynamic Play Button text** — The play button now polls the audio cache. If the current text, voice, speed, and model match an existing generated audio blob, the button dynamically updates from "Generate Audio" to "Listen to Audio (MM:SS)".
+- **Dependent Autoplay logic** — The Autoplay toggle is now intelligently disabled and greyed out if "Pre-render" is unselected, since streaming audio implies immediate playback.
+
+### Improvements
+- **Background Generation caching** — Clicking "Stop" during playback now stops the audio output but allows the GPU model to finish synthesizing and caching the audio track in the background. This ensures that GPU work isn't discarded if a user just wanted to silence the playback.
+
+## [1.3.2] - 2026-09-01
+
+### Bug Fixes
+- **Month abbreviation expansion** — Added rules to spell out month abbreviations and strip their periods (e.g., "Aug." → "August") before text processing to prevent premature sentence chunking on dates.
+- **Improved Article Extraction** — Replaced `innerText` HTML parsing with a custom `articleCleaner.js` DOM walker that accurately interprets block-level tags (`<p>`, `<h1>`, `<div>`, etc.) as hard paragraph breaks, eliminating spacing issues in edge cases. Added heuristic line filters to automatically strip non-content text (e.g., "N MIN READ", newsletter/subscribe prompts).
+- **Paragraph-aware chunking** — `worker.js` now splits text strictly by paragraphs before processing sentences. Sentence chunks now track paragraph boundaries, triggering a longer 0.45s pause at the end of paragraphs for more natural pacing and newscast-like delivery of subheaders.
+
 ## [1.3.1] - 2026-08-28
 
 ### Bug Fixes
