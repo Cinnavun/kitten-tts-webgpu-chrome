@@ -65,6 +65,13 @@
           />
         </div>
       </div>
+
+      <div style="margin-top: 12px; font-size: 0.9em;">
+        <label style="display: flex; align-items: center; gap: 8px; cursor: pointer;">
+          <input type="checkbox" id="renderBeforePlayToggle" />
+          Pre-render full audio before playback (reduces stutter on slow GPUs)
+        </label>
+      </div>
     </div>
 
     <!-- Text Input Card -->
@@ -100,8 +107,9 @@
       <div id="progressContainer" class="progress-bar-container">
         <div id="progressFill" class="progress-bar-fill"></div>
       </div>
-      <div style="display: flex; justify-content: flex-end; margin-top: 8px;">
-        <button id="resetGpuBtn" class="clear-btn" title="Recreates GPU worker and clears model cache" aria-label="Recreates GPU worker and clears model cache">🔄 Reset Engine / Clear Cache</button>
+      <div style="display: flex; justify-content: flex-end; margin-top: 8px; gap: 8px;">
+        <button id="clearAudioCacheBtn" class="clear-btn" title="Clears stored audio cache" aria-label="Clears stored audio cache">🗑️ Clear Audio Cache</button>
+        <button id="resetGpuBtn" class="clear-btn" title="Recreates GPU worker and clears model cache" aria-label="Recreates GPU worker and clears model cache">🔄 Reset Engine</button>
       </div>
     </div>
 
@@ -133,15 +141,13 @@
 
     <!-- Debug Panel (shown when KITTEN_DEBUG is enabled) -->
     <details id="debugPanel" class="debug-panel">
-      <summary>
-        <span>🐞 Debug</span>
-        <label class="debug-toggle" title="Enable verbose logging in DevTools console and here">
-          <input type="checkbox" id="debugToggle" />
-          <span class="debug-toggle-label">Enable debug logging</span>
-        </label>
-      </summary>
+      <summary>🐞 Debug</summary>
       <div class="debug-body">
         <div class="debug-toolbar">
+          <label class="debug-toggle" title="Enable verbose logging in DevTools console and here" style="margin-right: auto;">
+            <input type="checkbox" id="debugToggle" />
+            <span class="debug-toggle-label">Enable debug logging</span>
+          </label>
           <button id="debugClearBtn" class="clear-btn" aria-label="Clear debug log">Clear</button>
           <button id="debugCopyBtn" class="clear-btn" aria-label="Copy debug log to clipboard">Copy</button>
           <span id="debugEntryCount" class="debug-count">0 entries</span>

@@ -130,7 +130,7 @@ export const ABBREVIATIONS = new Set([
   "ltd", "co", "corp", "dept", "univ", "est", "approx", "govt", "assn",
   "gen", "sgt", "cpl", "pvt", "capt", "lt", "col", "maj", "cmdr", "adm",
   "rev", "hon", "pres", "gov", "atty", "supt", "det", "msgr", "fr",
-  "no", "op", "ft", "mt", "ave", "blvd", "cl", "ct", "sq", "pl"
+  "no", "op", "ft", "mt", "ave", "blvd", "cl", "ct", "sq", "pl", "sen"
 ]);
 
 // ─────────────────────────────────────────────
@@ -175,11 +175,11 @@ function expandPercentages(text) {
 }
 
 function expandCurrency(text) {
-  const scaleMap = { 
+  const scaleMap = {
     K: "thousand", THOUSAND: "thousand", THOU: "thousand",
     M: "million", MILLION: "million", MIL: "million",
     B: "billion", BILLION: "billion", BIL: "billion",
-    T: "trillion", TRILLION: "trillion" 
+    T: "trillion", TRILLION: "trillion"
   };
   return text.replace(RE_CURRENCY, (m, symbol, rawNum, scaleSuffix) => {
     let raw = rawNum.replace(/,/g, "");
@@ -347,7 +347,7 @@ const PREFIX_ABBREVIATIONS = {
   "maj": "major", "cmdr": "commander", "adm": "admiral", "rev": "reverend",
   "hon": "honorable", "pres": "president", "gov": "governor", "atty": "attorney",
   "supt": "superintendent", "det": "detective", "mgr": "manager", "msgr": "monsignor",
-  "fr": "father", "rep": "representative",
+  "fr": "father", "rep": "representative", "sen": "senator",
   "st": "saint"
 };
 
@@ -374,7 +374,7 @@ function expandAbbreviations(text) {
   // Contextual 'ft' and 'mt'
   // 1. Preceded by a number: feet (e.g. 50 ft Queenie)
   text = text.replace(/(^|\s)(\d+(?:\.\d+)?)\s+ft\b/gi, "$1$2 feet");
-  
+
   // 2. Capitalized 'Ft' or 'Mt' before Capitalized word (e.g. Ft. Lauderdale, Mt. Everest)
   text = text.replace(/\bFt\b(?=\s+["'\u201C\u201D\u2018\u2019]?[A-Z])/g, "Fort");
   text = text.replace(/\bMt\b(?=\s+["'\u201C\u201D\u2018\u2019]?[A-Z])/g, "Mount");
@@ -470,12 +470,17 @@ function fixMissingSentenceSpacing(text) {
 }
 
 function stripAbbreviationPeriods(text) {
-  return text.replace(/\b([a-zA-Z]+)\./g, (match, word) => {
+  text = text.replace(/\b([a-zA-Z]+)\./g, (match, word) => {
     if (ABBREVIATIONS.has(word.toLowerCase())) {
       return word; // strip the period
     }
     return match;
   });
+
+  // Strip periods from single-letter initials and replace with a space 
+  // so the TTS engine spells them out (e.g. U.S.A. -> U S A , J.K. -> J K )
+  text = text.replace(/\b([a-zA-Z])\./g, "$1 ");
+  return text;
 }
 
 // ─────────────────────────────────────────────

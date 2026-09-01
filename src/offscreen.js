@@ -53,7 +53,7 @@ function portSend(msg) {
   } catch (e) {
     console.warn("Port send failed, reconnecting...", e);
     connectPort();
-    try { port.postMessage(msg); } catch (_) {}
+    try { port.postMessage(msg); } catch (_) { }
   }
 }
 
@@ -62,7 +62,7 @@ const PRE_BUFFER_THRESHOLD = 1;
 let chunksReceived = 0;
 let pendingSchedule = [];
 
-const ttsWorker = new Worker("dist/worker.js", { type: "module" });
+let ttsWorker = new Worker("dist/worker.js", { type: "module" });
 
 let keepAliveOsc = null;
 let audioUnlockPromise = null;
@@ -70,7 +70,7 @@ let audioUnlockPromise = null;
 function getAudioContext() {
   if (!audioCtx || audioCtx.state === "closed") {
     audioCtx = new AudioContext({ sampleRate: 24000 });
-    
+
     // Play a continuous silent oscillator to keep the AudioContext "active".
     keepAliveOsc = audioCtx.createOscillator();
     const gainNode = audioCtx.createGain();
@@ -78,7 +78,7 @@ function getAudioContext() {
     keepAliveOsc.connect(gainNode);
     gainNode.connect(audioCtx.destination);
     keepAliveOsc.start();
-    
+
     // Attempt to unlock AudioContext Autoplay Policy in Chrome
     audioUnlockPromise = (async () => {
       try {
@@ -139,10 +139,10 @@ function stopPlayback(broadcast = true) {
   }
   activeSources = [];
   pendingSchedule = [];
-  
+
   // DO NOT destroy keepAliveOsc here! It needs to run continuously
   // for the lifetime of the AudioContext.
-  
+
   if (audioCtx && audioCtx.state !== "closed") {
     // We intentionally don't close the audioCtx so we can reuse it
   }
@@ -181,7 +181,7 @@ function flushPendingSchedule() {
   });
 }
 
-function exportMergedWav(chunks, sampleRate = 24000) {
+async function exportMergedWav(chunks, sampleRate = 24000) {
   const totalSamples = chunks.reduce((sum, chunk) => {
     const pauseSamples = Math.floor((chunk.pauseAfter || 0) * sampleRate);
     return sum + chunk.buffer.length + pauseSamples;
@@ -204,16 +204,28 @@ function exportMergedWav(chunks, sampleRate = 24000) {
   view.setUint16(34, 16, true);
   writeString(36, "data");
   view.setUint32(40, totalSamples * 2, true);
-  let offset = 44;
+
+  // Use Int16Array for ultra-fast PCM writes
+  const pcm16 = new Int16Array(wavBuffer, 44, totalSamples);
+  let pcmOffset = 0;
+  let chunkIndex = 0;
+
   for (const chunk of chunks) {
     const channelData = chunk.buffer.getChannelData(0);
-    for (let i = 0; i < channelData.length; i++, offset += 2) {
-      const s = Math.max(-1, Math.min(1, channelData[i]));
-      view.setInt16(offset, s < 0 ? s * 0x8000 : s * 0x7fff, true);
+    const len = channelData.length;
+    for (let i = 0; i < len; i++) {
+      const s = channelData[i];
+      // Faster clamp and scale
+      pcm16[pcmOffset++] = (s < -1 ? -1 : s > 1 ? 1 : s) * 0x7fff;
     }
     const pauseSamples = Math.floor((chunk.pauseAfter || 0) * sampleRate);
-    for (let i = 0; i < pauseSamples; i++, offset += 2) {
-      view.setInt16(offset, 0, true);
+    for (let i = 0; i < pauseSamples; i++) {
+      pcm16[pcmOffset++] = 0;
+    }
+
+    // Yield to the event loop every 20 chunks to prevent freezing the extension process
+    if (++chunkIndex % 20 === 0) {
+      await new Promise(r => setTimeout(r, 0));
     }
   }
   return new Blob([wavBuffer], { type: "audio/wav" });
@@ -284,12 +296,12 @@ ttsWorker.onmessage = async (e) => {
 
       if (collectedAudioBuffers.length > 0) {
         if (lastSynthParams && lastSynthParams.cacheKey) {
-          const mergedBlob = exportMergedWav(collectedAudioBuffers, 24000);
+          const mergedBlob = await exportMergedWav(collectedAudioBuffers, 24000);
           await saveAudio(lastSynthParams.cacheKey, mergedBlob).catch(err => {
             console.warn("Failed to save audio to cache:", err);
           });
         }
-        
+
         if (lastSynthParams?.renderBeforePlay) {
           const ctx = getAudioContext();
           if (ctx.state === "suspended") await ctx.resume();
@@ -330,7 +342,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     try {
       const parser = new DOMParser();
       const doc = parser.parseFromString(msg.html, "text/html");
-      const reader = new Readability(doc, { maxElemsToParse: 5000 });
+      const reader = new Readability(doc, { maxElemsToParse: 15000 });
       const parsed = reader.parse();
 
       if (parsed && parsed.textContent) {
@@ -345,7 +357,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
           byline: parsed.byline,
           rawLength: parsed.textContent.length,
           cleanLength: cleanText.length,
-          preview: cleanText.slice(0, 400)
+          fullText: cleanText
         });
 
         sendResponse({
@@ -399,7 +411,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
           nextStartTime = ctx.currentTime;
           const audioBuffer = await ctx.decodeAudioData(arrayBuf);
           scheduleAudioBuffer({ buffer: audioBuffer, pauseAfter: 0 });
-          
+
           portSend({ type: "TTS_STATUS", status: "Playing audio", state: "playing" });
           portSend({ type: "TTS_AUDIO_READY" });
         } else {
@@ -410,7 +422,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
         portSend({ type: "TTS_STATUS", status: "Error playing cache.", state: "error" });
       }
     })();
-    
+
     sendResponse({ success: true, replayed: true });
     return true;
   }
@@ -437,30 +449,46 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
 
     lastSynthParams = incomingParams;
 
-    const ctx = getAudioContext();
-    if (ctx.state === "suspended") {
-      ctx.resume();
-    }
-    nextStartTime = ctx.currentTime;
+    (async () => {
+      const ctx = getAudioContext();
+      if (ctx.state === "suspended") {
+        await ctx.resume();
+      }
+      if (audioUnlockPromise) {
+        await audioUnlockPromise;
+      }
+      nextStartTime = ctx.currentTime;
 
-    // Kick off worker with extension base URL for local model resolution
-    ttsWorker.postMessage({
-      type: "PLAY_TEXT",
-      text: msg.text,
-      voice: msg.voice,
-      speed: msg.speed,
-      model: msg.model,
-      generationId: thisGenId,
-      extensionBaseUrl: chrome.runtime.getURL("")
-    });
+      // Kick off worker with extension base URL for local model resolution
+      ttsWorker.postMessage({
+        type: "PLAY_TEXT",
+        text: msg.text,
+        voice: msg.voice,
+        speed: msg.speed,
+        model: msg.model,
+        generationId: thisGenId,
+        extensionBaseUrl: chrome.runtime.getURL("")
+      });
 
-    sendResponse({ success: true });
+      sendResponse({ success: true });
+    })();
+
     return true;
   }
 
   if (msg.type === "STOP_AUDIO") {
     stopPlayback();
     sendResponse({ stopped: true });
+    return true;
+  }
+
+  if (msg.type === "RESET_WORKER") {
+    ttsWorker.postMessage({ type: "RESET_ENGINE" });
+    // Give it a tiny moment to process the free/destroy before forced termination
+    setTimeout(() => {
+      ttsWorker.terminate();
+      sendResponse({ success: true });
+    }, 50);
     return true;
   }
 });

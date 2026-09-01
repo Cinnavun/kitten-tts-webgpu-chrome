@@ -1,5 +1,5 @@
 // background.js
-import { generateCacheKey, getAudio } from './src/db.js';
+import { generateCacheKey, getAudio, clearAudioCache } from './src/db.js';
 const OFFSCREEN_DOCUMENT_PATH = "offscreen.html";
 
 /** URLs that cannot be injected into or extracted from. */
@@ -42,8 +42,8 @@ async function setupOffscreenDocument() {
     try {
       await chrome.offscreen.createDocument({
         url: OFFSCREEN_DOCUMENT_PATH,
-        reasons: [chrome.offscreen.Reason.AUDIO_PLAYBACK],
-        justification: "Synthesizing text with KittenTTS WebGPU"
+        reasons: [chrome.offscreen.Reason.WORKERS || chrome.offscreen.Reason.DOM_PARSER],
+        justification: "Runs a WebGPU synthesis worker and renders audio"
       });
 
       await new Promise((resolve) => {
@@ -76,6 +76,7 @@ chrome.storage.onChanged.addListener((changes, area) => {
     if (changes.preferredVoice) cachedPrefs.voice = changes.preferredVoice.newValue;
     if (changes.preferredModel) cachedPrefs.model = changes.preferredModel.newValue;
     if (changes.preferredSpeed) cachedPrefs.speed = parseFloat(changes.preferredSpeed.newValue || "1.0");
+    if (changes.renderBeforePlay) cachedPrefs.renderBeforePlay = changes.renderBeforePlay.newValue;
   }
 });
 
@@ -83,12 +84,13 @@ async function getStoredPreferences() {
   if (cachedPrefs) return cachedPrefs;
   return new Promise((resolve) => {
     chrome.storage.local.get(
-      { preferredVoice: "Jasper", preferredModel: "nano", preferredSpeed: "1.0" },
+      { preferredVoice: "Jasper", preferredModel: "nano", preferredSpeed: "1.0", renderBeforePlay: false },
       (items) => {
         cachedPrefs = {
           voice: items.preferredVoice,
           model: items.preferredModel,
-          speed: parseFloat(items.preferredSpeed || "1.0")
+          speed: parseFloat(items.preferredSpeed || "1.0"),
+          renderBeforePlay: items.renderBeforePlay
         };
         resolve(cachedPrefs);
       }
@@ -392,10 +394,20 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     return true;
   }
 
+  if (msg.type === "CLEAR_AUDIO_CACHE") {
+    clearAudioCache()
+      .then(() => sendResponse({ success: true, message: "Audio cache cleared." }))
+      .catch(err => sendResponse({ success: false, error: err.message }));
+    return true;
+  }
+
   if (msg.type === "RESET_GPU_OFFSCREEN") {
     (async () => {
       try {
         if (await hasOffscreenDocument()) {
+          // Tell offscreen to explicitly terminate the worker to force immediate WebGPU GC
+          await chrome.runtime.sendMessage({ target: "offscreen", type: "RESET_WORKER" }).catch(() => {});
+          // Then completely close the offscreen document
           await chrome.offscreen.closeDocument().catch(() => { });
         }
         if ("caches" in self) {
@@ -406,7 +418,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
         updateActionBadge("idle");
         sendToastToActiveTab({ action: "remove" });
         await setupOffscreenDocument();
-        sendResponse({ success: true, message: "GPU engine reset & cache cleared." });
+        sendResponse({ success: true, message: "GPU engine reset & model cache cleared." });
       } catch (err) {
         sendResponse({ success: false, error: err.message });
       }

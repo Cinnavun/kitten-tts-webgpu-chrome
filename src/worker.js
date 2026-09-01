@@ -124,6 +124,7 @@ function chunkText(text) {
       .filter((s) => s.length > 0);
 
     // Stitch sentences back together if the previous one ends with an abbreviation
+    const DOTTED_INITIALISM = /(?:\b[A-Za-z]\.){2,}\s*$/;   // "U.S.", "U.K.", "e.g."
     let stitched = [];
     for (let i = 0; i < segments.length; i++) {
       let seg = segments[i];
@@ -131,7 +132,8 @@ function chunkText(text) {
         let prev = stitched[stitched.length - 1];
         // Match a word followed by a period at the end of the previous segment
         let match = prev.match(/([a-zA-Z]+)\.$/);
-        if (match && ABBREVIATIONS.has(match[1].toLowerCase())) {
+        
+        if (DOTTED_INITIALISM.test(prev) || (match && ABBREVIATIONS.has(match[1].toLowerCase()))) {
           stitched[stitched.length - 1] = prev + " " + seg;
           continue;
         }
@@ -154,7 +156,7 @@ function chunkText(text) {
   dbg("chunkText.preprocessed", { count: sentences.length, sentences });
 
   const MAX_CHUNK_LENGTH = 350;
-  const TARGET_CHUNK_LENGTH = 250; 
+  const TARGET_CHUNK_LENGTH = 160;
   const finalChunks = [];
   let currentChunk = "";
 
@@ -196,7 +198,7 @@ function chunkText(text) {
         }
         return;
       }
-      
+
       const subPieces = piece.split(splitRegex);
       // If the regex couldn't find any split points, degrade to the next tier
       if (subPieces.length === 1 && subPieces[0] === piece) {
@@ -227,7 +229,7 @@ function chunkText(text) {
   for (const sentence of sentences) {
     processSentence(sentence);
   }
-  pushCurrentChunk(); 
+  pushCurrentChunk();
 
   const result = finalChunks.filter((c) => c && /[a-zA-Z0-9]/.test(c));
   dbg("chunkText.finalChunks", { count: result.length, chunks: result });
@@ -273,6 +275,25 @@ function synthesizeWithTimeout(engine, text, voice, speed, timeoutMs = 60000) {
 
 self.onmessage = async (e) => {
   const msg = e.data;
+
+  if (msg.type === "RESET_ENGINE") {
+    isCancelled = true;
+    for (const [model, engine] of engineCache.entries()) {
+      try {
+        if (typeof engine.free === 'function') engine.free();
+        if (typeof engine.destroy === 'function') engine.destroy();
+        // WebGPU devices can be explicitly destroyed
+        if (engine.device && typeof engine.device.destroy === 'function') {
+          engine.device.destroy();
+        }
+      } catch (err) {
+        console.warn("[KittenTTS Worker] Error during explicit engine destruction:", err);
+      }
+    }
+    engineCache.clear();
+    engineLoading.clear();
+    return;
+  }
 
   // Store extension base URL for constructing local model paths
   if (msg.extensionBaseUrl) {

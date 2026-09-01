@@ -12,6 +12,8 @@ const modelSelect = document.querySelector("#modelSelect");
 const speedInput = document.querySelector("#speedInput");
 /** @type {HTMLElement | null} */
 const speedValue = document.getElementById("speedValue");
+/** @type {HTMLInputElement | null} */
+const renderBeforePlayToggle = document.querySelector("#renderBeforePlayToggle");
 /** @type {HTMLTextAreaElement | null} */
 const textInput = document.querySelector("#textInput");
 /** @type {HTMLButtonElement | null} */
@@ -32,6 +34,8 @@ const progressContainer = document.getElementById("progressContainer");
 const progressFill = document.getElementById("progressFill");
 /** @type {HTMLButtonElement | null} */
 const resetGpuBtn = document.querySelector("#resetGpuBtn");
+/** @type {HTMLButtonElement | null} */
+const clearAudioCacheBtn = document.querySelector("#clearAudioCacheBtn");
 /** @type {HTMLElement | null} */
 const charCount = document.getElementById("charCount");
 
@@ -86,15 +90,18 @@ themeSelect?.addEventListener("change", (e) => {
   applyTheme(target.value);
 });
 
-// 2. Load Saved Preferences (voice, model, speed)
+// 2. Load Saved Preferences (voice, model, speed, renderBeforePlay)
 chrome.storage.local.get(
-  { preferredVoice: "Jasper", preferredModel: "nano", preferredSpeed: "1.0" },
+  { preferredVoice: "Jasper", preferredModel: "nano", preferredSpeed: "1.0", renderBeforePlay: false },
   (items) => {
     if (voiceSelect) voiceSelect.value = items.preferredVoice;
     if (modelSelect) modelSelect.value = items.preferredModel;
     if (speedInput) {
       speedInput.value = items.preferredSpeed;
       if (speedValue) speedValue.textContent = `${items.preferredSpeed}x`;
+    }
+    if (renderBeforePlayToggle) {
+      renderBeforePlayToggle.checked = items.renderBeforePlay;
     }
   },
 );
@@ -115,6 +122,12 @@ const saveSpeed = debounce((value) => {
 speedInput?.addEventListener("input", () => {
   if (speedValue) speedValue.textContent = `${speedInput.value}x`;
   saveSpeed(speedInput.value);
+});
+
+renderBeforePlayToggle?.addEventListener("change", () => {
+  if (renderBeforePlayToggle) {
+    chrome.storage.local.set({ renderBeforePlay: renderBeforePlayToggle.checked });
+  }
 });
 
 // 4. Character Count & Clear Input
@@ -158,6 +171,7 @@ async function startPlayback(textToPlay) {
   const voice = voiceSelect?.value || "Jasper";
   const speed = parseFloat(speedInput?.value || "1.0");
   const model = modelSelect?.value || "nano";
+  const renderBeforePlay = renderBeforePlayToggle?.checked || false;
 
   if (!text) {
     if (statusText)
@@ -184,7 +198,8 @@ async function startPlayback(textToPlay) {
       voice,
       speed,
       model,
-      cacheKey
+      cacheKey,
+      renderBeforePlay
     });
   }
 
@@ -376,6 +391,13 @@ resetGpuBtn?.addEventListener("click", () => {
   });
 });
 
+clearAudioCacheBtn?.addEventListener("click", () => {
+  if (statusText) statusText.textContent = "Clearing audio cache...";
+  if (statusDot) statusDot.className = "status-dot busy";
+  chrome.runtime.sendMessage({ type: "CLEAR_AUDIO_CACHE" }, (res) => {
+    resetControls(res?.message || "Audio cache cleared.");
+  });
+});
 
 // ── 10. Debug Panel ────────────────────────────────────────────────────────
 
