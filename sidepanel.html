@@ -33,10 +33,10 @@
               <option value="Leo">Leo</option>
             </optgroup>
             <optgroup label="Female">
-              <option value="Bella">Bella</option>
+              <option value="Kiki">Kiki</option>
               <option value="Luna">Luna</option>
               <option value="Rosie">Rosie</option>
-              <option value="Kiki">Kiki</option>
+              <option value="Bella">Bella</option>
             </optgroup>
           </select>
         </div>
@@ -66,10 +66,23 @@
         </div>
       </div>
 
-      <div style="margin-top: 12px; font-size: 0.9em;">
-        <label style="display: flex; align-items: center; gap: 8px; cursor: pointer;">
+      <div class="toggle-container" style="margin-top: 12px;">
+        <label class="toggle-switch">
           <input type="checkbox" id="renderBeforePlayToggle" />
+          <span class="toggle-slider"></span>
+        </label>
+        <label for="renderBeforePlayToggle" class="toggle-label">
           Pre-render full audio before playback (reduces stutter on slow GPUs)
+        </label>
+      </div>
+
+      <div class="toggle-container" style="margin-top: 12px;">
+        <label class="toggle-switch">
+          <input type="checkbox" id="autoplayToggle" checked />
+          <span class="toggle-slider"></span>
+        </label>
+        <label for="autoplayToggle" class="toggle-label">
+          Autoplay audio when generation finishes
         </label>
       </div>
     </div>

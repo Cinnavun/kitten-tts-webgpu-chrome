@@ -2,6 +2,7 @@
 import { Readability } from "@mozilla/readability";
 import { dbg } from "./debugLogger.js";
 import { saveAudio, getAudio } from "./db.js";
+import { cleanArticleText, cleanPlainText } from "./articleCleaner.js";
 
 /**
  * Debug helper for the offscreen context.
@@ -26,6 +27,7 @@ let activeSources = [];
 let collectedAudioBuffers = [];
 let isCancelled = false;
 let isGenerating = false;
+let isPlaybackStopped = false;
 let generationId = 0;
 
 /** Last synthesis parameters — used to detect cache hits for instant replay */
@@ -127,9 +129,8 @@ function scheduleAudioBuffer(chunkObj) {
  * Stop current audio playback. Does NOT clear the audio buffer cache
  * so that replay can re-use previously generated audio.
  */
-function stopPlayback(broadcast = true) {
-  isCancelled = true;
-  isGenerating = false;
+function stopPlayback(abortGeneration = false, broadcast = true) {
+  isPlaybackStopped = true;
   nextStartTime = 0;
   for (const source of activeSources) {
     try {
@@ -147,13 +148,17 @@ function stopPlayback(broadcast = true) {
     // We intentionally don't close the audioCtx so we can reuse it
   }
 
-  ttsWorker.postMessage({ type: "STOP_AUDIO" });
+  if (abortGeneration) {
+    isCancelled = true;
+    isGenerating = false;
+    ttsWorker.postMessage({ type: "STOP_AUDIO" });
+  }
 
   if (broadcast) {
     portSend({
       type: "TTS_STATUS",
-      status: "Stopped.",
-      state: "stopped"
+      status: (isGenerating && !abortGeneration) ? "Playback stopped. Generating in background..." : "Stopped.",
+      state: (isGenerating && !abortGeneration) ? "busy" : "stopped"
     });
   }
 }
@@ -163,7 +168,10 @@ function stopPlayback(broadcast = true) {
  * Called when the pre-buffer threshold is reached or when synthesis completes for short texts.
  */
 function flushPendingSchedule() {
-  if (pendingSchedule.length === 0) return;
+  if (pendingSchedule.length === 0 || isPlaybackStopped) {
+    pendingSchedule = [];
+    return;
+  }
 
   const ctx = getAudioContext();
   if (ctx.state === "suspended") ctx.resume();
@@ -270,7 +278,7 @@ ttsWorker.onmessage = async (e) => {
       collectedAudioBuffers.push(chunkData);
       chunksReceived++;
 
-      if (!lastSynthParams?.renderBeforePlay) {
+      if (!lastSynthParams?.renderBeforePlay && !isPlaybackStopped) {
         if (chunksReceived <= PRE_BUFFER_THRESHOLD) {
           // Collect chunks until we have enough for a smooth start
           pendingSchedule.push(chunkData);
@@ -302,7 +310,7 @@ ttsWorker.onmessage = async (e) => {
           });
         }
 
-        if (lastSynthParams?.renderBeforePlay) {
+        if (lastSynthParams?.autoplay !== false && !isPlaybackStopped) {
           const ctx = getAudioContext();
           if (ctx.state === "suspended") await ctx.resume();
           nextStartTime = ctx.currentTime;
@@ -342,20 +350,25 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     try {
       const parser = new DOMParser();
       const doc = parser.parseFromString(msg.html, "text/html");
-      const reader = new Readability(doc, { maxElemsToParse: 15000 });
+
+      // Kill obvious non-content regions BEFORE Readability scores the page
+      doc.querySelectorAll(
+        "script, style, noscript, template, iframe, svg, form, nav, aside, footer, " +
+        "[aria-hidden='true'], " +
+        "[class*='newsletter' i], [class*='subscribe' i], [class*='signup' i], " +
+        "[class*='promo' i], [class*='recirc' i]"
+      ).forEach((el) => el.remove());
+
+      const reader = new Readability(doc, { maxElemsToParse: 10000 });
       const parsed = reader.parse();
 
-      if (parsed && parsed.textContent) {
-        const cleanText = parsed.textContent
-          .split("\n")
-          .map((line) => line.trim())
-          .filter((line) => line.length > 0)
-          .join("\n\n");
+      if (parsed && parsed.content) {
+        const cleanText = cleanArticleText(parsed.content);
 
         offscreenDbg("readability.parsed", {
           title: parsed.title,
           byline: parsed.byline,
-          rawLength: parsed.textContent.length,
+          rawLength: parsed.content.length,
           cleanLength: cleanText.length,
           fullText: cleanText
         });
@@ -363,12 +376,11 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
         sendResponse({
           title: parsed.title || msg.title || "",
           byline: parsed.byline || "",
-          text: parsed.title && cleanText ? `${parsed.title}.\n\n${cleanText}` : cleanText
+          text: cleanText ? `${parsed.title ? parsed.title + '.\n\n' : ''}${cleanText}` : cleanText
         });
       } else {
-        // Fallback to body text
         doc.querySelectorAll("script, style, noscript, template, iframe, svg").forEach(el => el.remove());
-        const fallbackText = doc.body?.textContent?.trim() || "";
+        const fallbackText = cleanPlainText(doc.body?.textContent || "");
         offscreenDbg("readability.fallback", { length: fallbackText.length, preview: fallbackText.slice(0, 200) });
         sendResponse({
           title: msg.title || "",
@@ -394,9 +406,10 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
 
   if (msg.type === "PLAY_CACHED") {
     const thisGenId = ++generationId;
-    stopPlayback(false);
+    stopPlayback(true, false);
     isCancelled = false;
     isGenerating = false;
+    isPlaybackStopped = false;
     collectedAudioBuffers = [];
     chunksReceived = 0;
     pendingSchedule = [];
@@ -439,10 +452,11 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
 
     // ── New Synthesis ───────────────────────────────────────────
     const thisGenId = ++generationId;
-    stopPlayback(false);
+    stopPlayback(true, false);
 
     isCancelled = false;
     isGenerating = true;
+    isPlaybackStopped = false;
     collectedAudioBuffers = [];  // Clear cache for new synthesis
     chunksReceived = 0;
     pendingSchedule = [];
@@ -477,7 +491,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   }
 
   if (msg.type === "STOP_AUDIO") {
-    stopPlayback();
+    stopPlayback(false, true);
     sendResponse({ stopped: true });
     return true;
   }
