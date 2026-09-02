@@ -109,10 +109,10 @@ const RE_MENTION = /@\w+/g;
 const RE_HTML = /<[^>]+>/g;
 const RE_PUNCT = /[^\w\s.,?!;:\-\u2014\u2013\u2026]/g;
 const RE_SPACES = /\s+/g;
-const RE_NUMBER = /(?<![a-zA-Z])-?[\d,]+(?:\.\d+)?/g;
+const RE_NUMBER = /(?<![a-zA-Z])-?\d[\d,]*(?:\.\d+)?/g;
 const RE_ORDINAL = /\b(\d+)(st|nd|rd|th)\b/gi;
-const RE_PERCENT = /(-?[\d,]+(?:\.\d+)?)\s*%/g;
-const RE_CURRENCY = /([$€£¥₹₩₿])\s*([\d,]+(?:\.\d+)?)\s*(thousand|thou|million|mil|billion|bil|trillion|k|m|b|t)?(?![a-zA-Z\d])/gi;
+const RE_PERCENT = /(-?\d[\d,]*(?:\.\d+)?)\s*%/g;
+const RE_CURRENCY = /([$€£¥₹₩₿])\s*(\d[\d,]*(?:\.\d+)?)\s*(thousand|thou|million|mil|billion|bil|trillion|k|m|b|t)?(?![a-zA-Z\d])/gi;
 const RE_TIME = /\b(\d{1,2}):(\d{2})(?::(\d{2}))?\s*(am|pm)?\b/gi;
 const RE_RANGE = /(?<!\w)(\d+)-(\d+)(?!\w)/g;
 const RE_MODEL_VER = /\b([a-zA-Z][a-zA-Z0-9]*)-(\d[\d.]*)(?=[^\d.]|$)/g;
@@ -661,7 +661,8 @@ const DEFAULT_STOPWORDS = new Set([
 ]);
 
 const ACRONYMS_TO_SPELL = new Set([
-  "US", "USA", "NYC", "GPU", "CPU", "NPU", "TPU", "IUD", "IUP", "MIT", "SMU", "BYU",
+  "US", "USA", "NYC", "GPU", "CPU", "USPSTF", "ADA", "AMA", "AHA", "CPA", "USPHS", "ACIP", "AHRQ",
+  "FDA", "USFWS", "USPTO", "PTA", "FOIA", "SaaS", "USPS", "NPU", "TPU", "IUD", "IUP", "MIT", "SMU", "BYU",
   "ASU", "OSU", "UN", "UNGA", "UNSC", "UNFPA", "API", "CEO", "CFO", "CTO",
   "FBI", "CIA", "NSA", "IRS", "UK", "EU", "URL", "HTTP", "HTTPS", "SSL", "TLS",
   "TCP", "UDP", "DNS", "UI", "UX", "PR", "HR", "HQ", "QA", "QC", "VIP", "DIY",
@@ -686,26 +687,26 @@ function expandAcronyms(text) {
       if (word === "US") {
         const prevMatch = fullText.slice(0, offset).match(/\b([a-zA-Z]+)\W*$/);
         const nextMatch = fullText.slice(offset + word.length).match(/^\W*([a-zA-Z]+)\b/);
-        
+
         const prevWord = prevMatch ? prevMatch[1] : "";
         const nextWord = nextMatch ? nextMatch[1] : "";
-        
+
         const isPrevCaps = prevWord && prevWord === prevWord.toUpperCase();
         const isNextCaps = nextWord && nextWord === nextWord.toUpperCase();
-        
+
         const noLowercaseAround = (!prevWord || isPrevCaps) && (!nextWord || isNextCaps);
         const atLeastOneCaps = (prevWord && isPrevCaps) || (nextWord && isNextCaps);
 
         if (noLowercaseAround && atLeastOneCaps) {
           const usNouns = new Set([
-            "GOVERNMENT", "ARMY", "MILITARY", "NAVY", "AIR", "DOLLAR", "DOLLARS", 
-            "CITIZEN", "CITIZENS", "ECONOMY", "HISTORY", "LAW", "LAWS", "STATE", "STATES", 
-            "POLICY", "POLITICS", "MARKET", "FORCES", "TROOPS", "BORDER", "ELECTION", 
+            "GOVERNMENT", "ARMY", "MILITARY", "NAVY", "AIR", "DOLLAR", "DOLLARS",
+            "CITIZEN", "CITIZENS", "ECONOMY", "HISTORY", "LAW", "LAWS", "STATE", "STATES",
+            "POLICY", "POLITICS", "MARKET", "FORCES", "TROOPS", "BORDER", "ELECTION",
             "ELECTIONS", "CONGRESS", "SENATE", "PRESIDENT", "FLAG", "EMBASSY",
             "PASSPORT", "VISA", "SUPREME", "COURT", "CONSTITUTION"
           ]);
           if (prevWord !== "THE" && prevWord !== "IN" && prevWord !== "FROM" && !usNouns.has(nextWord) && !ACRONYMS_TO_SPELL.has(nextWord) && !ACRONYMS_TO_SPELL.has(prevWord)) {
-             return match;
+            return match;
           }
         }
       }
