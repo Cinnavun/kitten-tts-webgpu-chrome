@@ -1,4 +1,5 @@
 node_modules/
+/node_modules/**
 dist/
 .DS_Store
 .vscode/
@@ -11,3 +12,4 @@ workflow.bat
 package-lock.json
 .gitignore
 kitten-tts-webgpu-chrome-store.zip
+gitignore
