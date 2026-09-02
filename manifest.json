@@ -32,16 +32,6 @@
     "http://*/*",
     "https://*/*"
   ],
-  "web_accessible_resources": [
-    {
-      "resources": [
-        "models/*"
-      ],
-      "matches": [
-        "<all_urls>"
-      ]
-    }
-  ],
   "commands": {
     "_execute_action": {
       "suggested_key": {
