@@ -15,7 +15,8 @@ $includeItems = @(
   'icons',
   'models',
   'assets',
-  'dist'
+  'dist',
+  'src'
 )
 
 Write-Host "📦 Building store package..." -ForegroundColor Cyan

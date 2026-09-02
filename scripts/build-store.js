@@ -16,7 +16,8 @@ const includeItems = [
   'icons',
   'models',
   'assets',
-  'dist'
+  'dist',
+  'src'
 ];
 
 // Create output ZIP

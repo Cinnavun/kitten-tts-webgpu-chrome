@@ -10,3 +10,4 @@ workflow.bat
 .env.local
 package-lock.json
 .gitignore
+kitten-tts-webgpu-chrome-store.zip
