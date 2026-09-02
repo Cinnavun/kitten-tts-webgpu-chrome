@@ -18,7 +18,7 @@ We take security seriously. If you discover a vulnerability, **please report it 
 
 ### How to Report
 
-1. **Email:** Send details to your-email@example.com
+1. **Email:** Send details to cinnavun@icloud.com
    - Subject: `[SECURITY] Kitten TTS WebGPU - <brief description>`
    - Include:
      - Description of the vulnerability
@@ -99,9 +99,8 @@ Critical security updates are released as:
 - Large articles (>5000 words) may be slow on older GPUs
 
 ### Planned
-- [ ] Multi-language support (requires additional dictionaries)
 - [ ] Firefox support (manifest port required)
-- [ ] Streaming synthesis (reduce memory usage for very long texts)
+- [ ] Add options - Onnx runtime / kokoro?
 
 ## Dependencies & Trust
 
