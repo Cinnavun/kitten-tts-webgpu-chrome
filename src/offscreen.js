@@ -311,19 +311,21 @@ ttsWorker.onmessage = async (e) => {
         }
 
         if (lastSynthParams?.autoplay !== false && !isPlaybackStopped) {
-          const ctx = getAudioContext();
-          if (ctx.state === "suspended") await ctx.resume();
-          nextStartTime = ctx.currentTime;
+          if (lastSynthParams?.renderBeforePlay) {
+            const ctx = getAudioContext();
+            if (ctx.state === "suspended") await ctx.resume();
+            nextStartTime = ctx.currentTime;
 
-          for (const chunkObj of collectedAudioBuffers) {
-            scheduleAudioBuffer(chunkObj);
+            for (const chunkObj of collectedAudioBuffers) {
+              scheduleAudioBuffer(chunkObj);
+            }
+
+            portSend({
+              type: "TTS_STATUS",
+              status: "Playing audio",
+              state: "playing"
+            });
           }
-
-          portSend({
-            type: "TTS_STATUS",
-            status: "Playing audio",
-            state: "playing"
-          });
         }
 
         portSend({ type: "TTS_AUDIO_READY" });
