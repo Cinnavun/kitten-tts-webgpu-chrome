@@ -661,7 +661,7 @@ const DEFAULT_STOPWORDS = new Set([
 ]);
 
 const ACRONYMS_TO_SPELL = new Set([
-  "USA", "NYC", "GPU", "CPU", "NPU", "TPU", "IUD", "IUP", "MIT", "SMU", "BYU",
+  "US", "USA", "NYC", "GPU", "CPU", "NPU", "TPU", "IUD", "IUP", "MIT", "SMU", "BYU",
   "ASU", "OSU", "UN", "UNGA", "UNSC", "UNFPA", "API", "CEO", "CFO", "CTO",
   "FBI", "CIA", "NSA", "IRS", "UK", "EU", "URL", "HTTP", "HTTPS", "SSL", "TLS",
   "TCP", "UDP", "DNS", "UI", "UX", "PR", "HR", "HQ", "QA", "QC", "VIP", "DIY",
@@ -674,7 +674,7 @@ const ACRONYMS_TO_SPELL = new Set([
 
 function expandAcronyms(text) {
   // Replace words that are ALL CAPS and in our list, or have no vowels
-  text = text.replace(/\b([A-Z]{2,7})([sS]?)\b/g, (match, word, plural) => {
+  text = text.replace(/\b([A-Z]{2,7})([sS]?)\b/g, (match, word, plural, offset, fullText) => {
     const hasVowel = /[AEIOUY]/.test(word);
     const isAllVowels = /^[AEIOU]{2,4}$/.test(word);
 
@@ -683,6 +683,33 @@ function expandAcronyms(text) {
     // 2. Has zero vowels (e.g., NFL, HTML, CSS, TTS)
     // 3. Composed entirely of 2-4 vowels (e.g., EEI, UI, EU, AI, AAA)
     if (ACRONYMS_TO_SPELL.has(word) || !hasVowel || isAllVowels) {
+      if (word === "US") {
+        const prevMatch = fullText.slice(0, offset).match(/\b([a-zA-Z]+)\W*$/);
+        const nextMatch = fullText.slice(offset + word.length).match(/^\W*([a-zA-Z]+)\b/);
+        
+        const prevWord = prevMatch ? prevMatch[1] : "";
+        const nextWord = nextMatch ? nextMatch[1] : "";
+        
+        const isPrevCaps = prevWord && prevWord === prevWord.toUpperCase();
+        const isNextCaps = nextWord && nextWord === nextWord.toUpperCase();
+        
+        const noLowercaseAround = (!prevWord || isPrevCaps) && (!nextWord || isNextCaps);
+        const atLeastOneCaps = (prevWord && isPrevCaps) || (nextWord && isNextCaps);
+
+        if (noLowercaseAround && atLeastOneCaps) {
+          const usNouns = new Set([
+            "GOVERNMENT", "ARMY", "MILITARY", "NAVY", "AIR", "DOLLAR", "DOLLARS", 
+            "CITIZEN", "CITIZENS", "ECONOMY", "HISTORY", "LAW", "LAWS", "STATE", "STATES", 
+            "POLICY", "POLITICS", "MARKET", "FORCES", "TROOPS", "BORDER", "ELECTION", 
+            "ELECTIONS", "CONGRESS", "SENATE", "PRESIDENT", "FLAG", "EMBASSY",
+            "PASSPORT", "VISA", "SUPREME", "COURT", "CONSTITUTION"
+          ]);
+          if (prevWord !== "THE" && prevWord !== "IN" && prevWord !== "FROM" && !usNouns.has(nextWord) && !ACRONYMS_TO_SPELL.has(nextWord) && !ACRONYMS_TO_SPELL.has(prevWord)) {
+             return match;
+          }
+        }
+      }
+
       const spelled = word.split('').join(' ');
       return plural ? `${spelled} s` : spelled;
     }
@@ -693,6 +720,14 @@ function expandAcronyms(text) {
   text = text.replace(/\b([Tt]he)\s+(un|UN)\b(?!\-)/g, (match, the, un) => {
     if (un.toLowerCase() === 'un') {
       return `${the} U N`;
+    }
+    return match;
+  });
+
+  // Handle "the US" or "The US" (or lowercase us)
+  text = text.replace(/\b([Tt]he)\s+(us|US)\b/g, (match, the, us) => {
+    if (us.toLowerCase() === 'us') {
+      return `${the} U S`;
     }
     return match;
   });

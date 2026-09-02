@@ -8,16 +8,13 @@ const archiver = require('archiver');
 // Files/folders to INCLUDE in the store package
 const includeItems = [
   'manifest.json',
-  'background.js',
   'content.js',
   'offscreen.html',
   'sidepanel.html',
   'sidepanel.css',
   'icons',
   'models',
-  'assets',
-  'dist',
-  'src'
+  'dist'
 ];
 
 // Create output ZIP
@@ -32,12 +29,12 @@ archive.pipe(output);
 // Add each required file/folder
 includeItems.forEach(item => {
   const fullPath = path.join(__dirname, '..', item);
-  
+
   if (!fs.existsSync(fullPath)) {
     console.warn(`⚠️  Warning: ${item} not found`);
     return;
   }
-  
+
   const stats = fs.statSync(fullPath);
   if (stats.isDirectory()) {
     archive.directory(fullPath, item);

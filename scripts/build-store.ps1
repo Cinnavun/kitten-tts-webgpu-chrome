@@ -7,16 +7,13 @@ param(
 
 $includeItems = @(
   'manifest.json',
-  'background.js',
   'content.js',
   'offscreen.html',
   'sidepanel.html',
   'sidepanel.css',
   'icons',
   'models',
-  'assets',
-  'dist',
-  'src'
+  'dist'
 )
 
 Write-Host "📦 Building store package..." -ForegroundColor Cyan
