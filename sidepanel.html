@@ -117,6 +117,16 @@
         <div id="statusDot" class="status-dot"></div>
         <span id="statusText">Ready</span>
       </div>
+      <div id="gpuWarningBox" class="gpu-warning-box" style="display: none;">
+        <div class="gpu-warning-text" id="gpuWarningText">
+          WebGPU is unavailable. Please verify <strong>"Use graphics acceleration when available"</strong> is enabled in Chrome Settings (<kbd>chrome://settings/system</kbd>) and relaunch Chrome.
+        </div>
+        <div class="gpu-warning-actions">
+          <button id="openGpuDiagnosticsBtn" class="gpu-link-btn" type="button">
+            🔍 Check chrome://gpu diagnostics ↗
+          </button>
+        </div>
+      </div>
       <div id="progressContainer" class="progress-bar-container">
         <div id="progressFill" class="progress-bar-fill"></div>
       </div>

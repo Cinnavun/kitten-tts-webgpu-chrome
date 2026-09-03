@@ -40,6 +40,70 @@ const resetGpuBtn = document.querySelector("#resetGpuBtn");
 const clearAudioCacheBtn = document.querySelector("#clearAudioCacheBtn");
 /** @type {HTMLElement | null} */
 const charCount = document.getElementById("charCount");
+/** @type {HTMLElement | null} */
+const gpuWarningBox = document.getElementById("gpuWarningBox");
+/** @type {HTMLElement | null} */
+const gpuWarningText = document.getElementById("gpuWarningText");
+/** @type {HTMLButtonElement | null} */
+const openGpuDiagnosticsBtn = /** @type {HTMLButtonElement | null} */ (document.getElementById("openGpuDiagnosticsBtn"));
+
+openGpuDiagnosticsBtn?.addEventListener("click", () => {
+  chrome.tabs.create({ url: "chrome://gpu" });
+});
+
+function showGpuWarning(customHtml) {
+  if (statusDot) statusDot.className = "status-dot error";
+  if (statusText) statusText.textContent = "WebGPU unavailable";
+  if (gpuWarningBox) gpuWarningBox.style.display = "block";
+  if (gpuWarningText && customHtml) {
+    gpuWarningText.innerHTML = customHtml;
+  }
+}
+
+function hideGpuWarning() {
+  if (gpuWarningBox) gpuWarningBox.style.display = "none";
+  if (statusDot && statusDot.className.includes("error")) {
+    statusDot.className = "status-dot";
+  }
+}
+
+/**
+ * Initial poll for WebGPU availability on sidepanel launch.
+ * Detects whether hardware graphics acceleration is enabled or disabled.
+ */
+async function pollGpuAvailability() {
+  if (!navigator.gpu) {
+    showGpuWarning(
+      'WebGPU is not supported by your browser. Please update Chrome to v113+ or check <kbd>chrome://gpu</kbd> for details.'
+    );
+    return false;
+  }
+
+  try {
+    let adapter = await navigator.gpu.requestAdapter();
+    if (!adapter) {
+      // Hardware GPU not returned -> attempt fallback adapter check
+      try {
+        adapter = await navigator.gpu.requestAdapter({ forceFallbackAdapter: true });
+      } catch (_) {}
+    }
+
+    if (!adapter) {
+      showGpuWarning(
+        'WebGPU is unavailable. Hardware graphics acceleration appears to be disabled. Please enable <strong>"Use graphics acceleration when available"</strong> in Chrome Settings (<kbd>chrome://settings/system</kbd>) and relaunch Chrome.'
+      );
+      return false;
+    }
+
+    hideGpuWarning();
+    return true;
+  } catch (err) {
+    showGpuWarning(
+      `WebGPU adapter initialization failed: ${err.message}. Please check <kbd>chrome://gpu</kbd> for details.`
+    );
+    return false;
+  }
+}
 
 // Debug panel DOM refs (populated in section 10)
 /** @type {HTMLDetailsElement | null} */
@@ -222,14 +286,17 @@ clearBtn?.addEventListener("click", () => {
   }
 });
 
-// 5. Silent Pre-Warm on Panel Load
+// 5. Initial GPU Poll & Silent Pre-Warm on Panel Load
 (async () => {
+  const isGpuReady = await pollGpuAvailability();
   await chrome.runtime.sendMessage({ type: "ENSURE_OFFSCREEN" });
-  chrome.runtime.sendMessage({
-    target: "offscreen",
-    type: "PREWARM_MODEL",
-    model: modelSelect?.value || "nano",
-  });
+  if (isGpuReady) {
+    chrome.runtime.sendMessage({
+      target: "offscreen",
+      type: "PREWARM_MODEL",
+      model: modelSelect?.value || "nano",
+    });
+  }
 })();
 
 // Helper to start playback
@@ -251,6 +318,14 @@ async function startPlayback(textToPlay) {
   
   const cacheKey = await generateCacheKey(text, voice, speed, model);
   const cachedBlob = await getAudio(cacheKey);
+
+  if (!cachedBlob) {
+    const isGpuReady = await pollGpuAvailability();
+    if (!isGpuReady) {
+      if (statusText) statusText.textContent = "Cannot synthesize: WebGPU unavailable.";
+      return;
+    }
+  }
 
   if (cachedBlob) {
     chrome.runtime.sendMessage({
@@ -408,7 +483,11 @@ function resetControls(statusMsg) {
   if (stopBtn) stopBtn.disabled = true;
   if (progressContainer) progressContainer.style.display = "none";
   if (progressFill) progressFill.style.width = "0%";
-  if (statusDot) statusDot.className = "status-dot";
+  if (gpuWarningBox && gpuWarningBox.style.display === "block") {
+    if (statusDot) statusDot.className = "status-dot error";
+  } else {
+    if (statusDot) statusDot.className = "status-dot";
+  }
   if (statusText) statusText.textContent = statusMsg;
 }
 
@@ -431,7 +510,13 @@ function resetControls(statusMsg) {
         resetControls(msg.status || "Stopped.");
       } else if (msg.state === "error") {
         resetControls(msg.status || "Error occurred");
+        if (msg.status?.includes("WebGPU") || msg.status?.includes("chrome://gpu") || msg.status?.includes("graphics acceleration")) {
+          showGpuWarning(
+            'WebGPU is unavailable. Please verify <strong>"Use graphics acceleration when available"</strong> is enabled in Chrome Settings (<kbd>chrome://settings/system</kbd>) and relaunch Chrome.'
+          );
+        }
       } else if (msg.state === "playing") {
+        hideGpuWarning();
         if (statusText) statusText.textContent = "Playing audio...";
         if (statusDot) statusDot.className = "status-dot playing";
       } else if (msg.state === "busy") {
@@ -460,9 +545,10 @@ function resetControls(statusMsg) {
 
 
 // 9. Reset Engine Action
-resetGpuBtn?.addEventListener("click", () => {
+resetGpuBtn?.addEventListener("click", async () => {
   if (statusText) statusText.textContent = "Resetting GPU process...";
   if (statusDot) statusDot.className = "status-dot busy";
+  await pollGpuAvailability();
   chrome.runtime.sendMessage({ type: "RESET_GPU_OFFSCREEN" }, (res) => {
     resetControls(res?.message || "Engine reset.");
   });

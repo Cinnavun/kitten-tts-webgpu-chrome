@@ -2,6 +2,23 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.3.5] - 2026-09-05
+
+### WebGPU Fallback & Hardware Resilience
+- **Two-Stage WebGPU Adapter Acquisition (`forceFallbackAdapter: true`)** — Implemented an automatic two-stage adapter acquisition strategy in `src/worker.js`:
+  - **Hardware First**: The engine first attempts to acquire a dedicated or integrated hardware GPU adapter via standard WebGPU adapter options (including `powerPreference: "high-performance"` on non-Windows platforms).
+  - **Software/CPU Fallback**: If the hardware adapter request returns `null` or throws (e.g. in environments lacking accessible GPU hardware or where browser hardware acceleration is disabled), the worker automatically requests a fallback adapter via `navigator.gpu.requestAdapter({ ...options, forceFallbackAdapter: true })`.
+  - **Graceful Error Handling**: If neither hardware nor software fallback adapters are available, `requestAdapter()` returns `null`, enabling standard error reporting without unhandled promise rejections.
+- **Initial GPU Availability Poll & Proactive Diagnostics**:
+  - Added `pollGpuAvailability()` in `src/sidepanel.js` to probe WebGPU hardware/fallback status immediately upon sidepanel load and on engine reset.
+  - Added `#gpuWarningBox` with red status indicator and explicit, actionable guidance when WebGPU is disabled due to hardware acceleration being turned off in Chrome.
+  - Integrated one-click `chrome://gpu` diagnostics button (`#openGpuDiagnosticsBtn`) opening `chrome://gpu` in a new tab via `chrome.tabs.create`.
+- **Diagnostic Logging & UI Feedback**:
+  - Tracked active adapter type via `adapter.isFallbackAdapter` and exposed diagnostic metadata (`gpu.adapter: { type, isFallback }`) via `dbg()` for the in-panel debug log.
+  - Updated worker initialization and synthesis progress messages to explicitly notify the user when running in CPU fallback mode (`"WebGPU running in CPU fallback mode (slower)…"`, `"Synthesizing X chunks (CPU mode)…"`).
+  - Enhanced worker error throwing to provide actionable resolution steps referencing Chrome Settings (`chrome://settings/system`) and `chrome://gpu`.
+- **Rebuilt Distribution Bundles** — Bundled updated worker, offscreen, and sidepanel scripts into `dist/` via esbuild.
+
 ## [1.3.4] - 2026-09-02
 
 ### TTS NLP & Acronym Pronunciation Fixes

@@ -259,17 +259,20 @@ ttsWorker.onmessage = async (e) => {
 
   // Forward status updates to background/UI over the persistent port
   if (msg.type === "TTS_STATUS" || msg.type === "TTS_PROGRESS") {
-    if (!isCancelled && msg.generationId === generationId) {
+    if (!isCancelled && (!msg.generationId || msg.generationId === generationId)) {
       portSend(msg);
     }
   }
 
   if (msg.type === "TTS_ERROR") {
-    if (!isCancelled && msg.generationId === generationId) {
+    if (!isCancelled && (!msg.generationId || msg.generationId === generationId)) {
       isGenerating = false;
+      const status = msg.error?.startsWith("WebGPU")
+        ? msg.error
+        : `GPU Error: ${msg.error}`;
       portSend({
         type: "TTS_STATUS",
-        status: `GPU Error: ${msg.error}`,
+        status,
         state: "error"
       });
     }

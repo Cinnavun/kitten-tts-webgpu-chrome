@@ -5,16 +5,59 @@ import { dbg, setDebugEnabled, isDebugEnabled } from "./debugLogger.js";
 
 const preprocessor = new TextPreprocessor();
 
-// Force high-performance GPU (e.g. dedicated Nvidia over Intel iGPU)
-// Note: powerPreference is ignored on Windows and logs a warning (https://crbug.com/369219127)
+/** Tracks whether the active WebGPU adapter is a software/CPU fallback adapter (SwiftShader) */
+let isUsingFallbackAdapter = false;
+
+// Intercept navigator.gpu.requestAdapter to:
+// 1. Request high-performance hardware GPU when available
+// 2. Automatically fall back to software/CPU adapter (forceFallbackAdapter: true) if hardware GPU is unavailable
 if (navigator.gpu) {
   const origRequestAdapter = navigator.gpu.requestAdapter.bind(navigator.gpu);
-  navigator.gpu.requestAdapter = (options = {}) => {
+  navigator.gpu.requestAdapter = async (options = {}) => {
     const isWindows = navigator.userAgent?.includes("Windows");
-    if (isWindows) {
-      return origRequestAdapter(options);
+    const primaryOptions = isWindows
+      ? { ...options }
+      : { ...options, powerPreference: "high-performance" };
+
+    let adapter = null;
+    try {
+      adapter = await origRequestAdapter(primaryOptions);
+    } catch (err) {
+      console.warn("[KittenTTS Worker] Primary hardware GPU adapter request threw:", err);
     }
-    return origRequestAdapter({ ...options, powerPreference: "high-performance" });
+
+    if (adapter) {
+      isUsingFallbackAdapter = Boolean(adapter.isFallbackAdapter);
+      dbg("gpu.adapter", {
+        type: isUsingFallbackAdapter ? "fallback" : "hardware",
+        isFallback: isUsingFallbackAdapter
+      });
+      return adapter;
+    }
+
+    // Hardware GPU not available -> Attempt CPU/software fallback adapter (e.g. SwiftShader)
+    console.warn("[KittenTTS Worker] No hardware GPU adapter found. Attempting forceFallbackAdapter: true...");
+    try {
+      adapter = await origRequestAdapter({
+        ...options,
+        forceFallbackAdapter: true
+      });
+      if (adapter) {
+        isUsingFallbackAdapter = true;
+        console.warn("[KittenTTS Worker] Acquired fallback adapter (software/CPU). Warning: Synthesis may be slower than hardware GPU.");
+        dbg("gpu.adapter", {
+          type: "fallback",
+          isFallback: true
+        });
+        return adapter;
+      }
+    } catch (fallbackErr) {
+      console.error("[KittenTTS Worker] Fallback adapter request failed:", fallbackErr);
+    }
+
+    // Neither hardware nor fallback adapter available
+    isUsingFallbackAdapter = false;
+    return null;
   };
 }
 
@@ -63,7 +106,21 @@ async function getEngine(model = "nano", onProgress) {
     const engine = new KittenTTSEngine();
 
     onProgress?.("Initializing WebGPU…");
-    await engine.init();
+    try {
+      await engine.init();
+    } catch (initErr) {
+      const initErrMsg = initErr.message || String(initErr);
+      if (initErrMsg.includes("WebGPU not available") || initErrMsg.includes("WebGPU")) {
+        throw new Error(
+          "WebGPU not available. Ensure 'Use graphics acceleration when available' is enabled in Chrome Settings > System and relaunch Chrome (see chrome://gpu for details)."
+        );
+      }
+      throw initErr;
+    }
+
+    if (isUsingFallbackAdapter) {
+      onProgress?.("WebGPU running in CPU fallback mode (slower)…");
+    }
 
     let onnxUrl, voicesUrl;
 
@@ -329,6 +386,7 @@ self.onmessage = async (e) => {
 
   if (msg.type === "RESET_ENGINE") {
     isCancelled = true;
+    isUsingFallbackAdapter = false;
     for (const [model, engine] of engineCache.entries()) {
       try {
         if (typeof engine.free === 'function') engine.free();
@@ -365,6 +423,8 @@ self.onmessage = async (e) => {
     } catch (err) {
       console.warn("[KittenTTS Worker] Pre-warm failed:", err.message);
       self.postMessage({ type: "PREWARM_DONE", success: false, error: err.message });
+      // Notify UI immediately via TTS_STATUS so side panel displays the diagnostic error
+      self.postMessage({ type: "TTS_STATUS", status: err.message, state: "error" });
     }
   }
 
@@ -395,7 +455,9 @@ self.onmessage = async (e) => {
 
       self.postMessage({
         type: "TTS_STATUS",
-        status: `Synthesizing ${chunks.length} chunk${chunks.length > 1 ? "s" : ""}…`,
+        status: isUsingFallbackAdapter
+          ? `Synthesizing ${chunks.length} chunk${chunks.length > 1 ? "s" : ""} (CPU mode)…`
+          : `Synthesizing ${chunks.length} chunk${chunks.length > 1 ? "s" : ""}…`,
         state: "busy",
         generationId
       });
@@ -477,7 +539,11 @@ self.onmessage = async (e) => {
 
     } catch (err) {
       console.error("Worker Engine Error:", err);
-      self.postMessage({ type: "TTS_ERROR", error: err.message, generationId });
+      let errorMsg = err.message || String(err);
+      if (errorMsg.includes("WebGPU not available") && !errorMsg.includes("chrome://gpu")) {
+        errorMsg = "WebGPU not available. Ensure 'Use graphics acceleration when available' is enabled in Chrome Settings > System and relaunch Chrome (see chrome://gpu for details).";
+      }
+      self.postMessage({ type: "TTS_ERROR", error: errorMsg, generationId });
     }
   }
 };
