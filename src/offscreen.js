@@ -1,6 +1,6 @@
 // src/offscreen.js
 import { Readability } from "@mozilla/readability";
-import { dbg } from "./debugLogger.js";
+import { dbg, isDebugEnabled, setDebugEnabled } from "./debugLogger.js";
 import { saveAudio, getAudio } from "./db.js";
 import { cleanArticleText, cleanPlainText } from "./articleCleaner.js";
 
@@ -112,6 +112,15 @@ function scheduleAudioBuffer(chunkObj) {
   source.start(startTime);
   nextStartTime = startTime + chunkObj.buffer.duration + (chunkObj.pauseAfter || 0);
   activeSources.push(source);
+
+  offscreenDbg("playback.schedule", {
+    chunkIndex: chunkObj.chunkIndex,
+    durationSec: Number(chunkObj.buffer.duration.toFixed(2)),
+    pauseAfterSec: chunkObj.pauseAfter || 0,
+    startTimeSec: Number(startTime.toFixed(2)),
+    nextStartTimeSec: Number(nextStartTime.toFixed(2)),
+    text: chunkObj.text
+  });
 
   source.onended = () => {
     activeSources = activeSources.filter((s) => s !== source);
@@ -274,7 +283,12 @@ ttsWorker.onmessage = async (e) => {
       }
 
       const audioBuffer = await ctx.decodeAudioData(msg.arrayBuf);
-      const chunkData = { buffer: audioBuffer, pauseAfter: msg.pauseAfter || 0 };
+      const chunkData = {
+        buffer: audioBuffer,
+        pauseAfter: msg.pauseAfter || 0,
+        chunkIndex: (msg.chunkIndex ?? 0) + 1,
+        text: msg.text
+      };
       collectedAudioBuffers.push(chunkData);
       chunksReceived++;
 
@@ -343,6 +357,13 @@ ttsWorker.onmessage = async (e) => {
 chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   if (msg.type === "PING_OFFSCREEN") {
     sendResponse({ ready: true });
+    return true;
+  }
+
+  if (msg.type === "SET_DEBUG") {
+    setDebugEnabled(msg.enabled);
+    ttsWorker.postMessage({ type: "SET_DEBUG", enabled: msg.enabled });
+    sendResponse({ success: true });
     return true;
   }
 
@@ -483,7 +504,8 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
         speed: msg.speed,
         model: msg.model,
         generationId: thisGenId,
-        extensionBaseUrl: chrome.runtime.getURL("")
+        extensionBaseUrl: chrome.runtime.getURL(""),
+        debug: isDebugEnabled()
       });
 
       sendResponse({ success: true });
@@ -508,3 +530,6 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     return true;
   }
 });
+
+// Signal to background.js that the offscreen document and all message listeners are fully active
+chrome.runtime.sendMessage({ type: "OFFSCREEN_READY" }).catch(() => {});

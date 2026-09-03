@@ -27,31 +27,35 @@ let _enabled = false;
 /** True when running inside a Web Worker (no `window`, has `self.postMessage`) */
 const IS_WORKER = typeof window === "undefined" && typeof self !== "undefined" && typeof self.postMessage === "function";
 
-/** True when chrome extension APIs are available */
-const HAS_CHROME = typeof chrome !== "undefined" && chrome?.storage?.local;
+/** True when chrome storage API is available */
+const HAS_STORAGE = typeof chrome !== "undefined" && Boolean(chrome?.storage?.local);
 
-// ── Flag initialisation ──────────────────────────────────────────────────────
+if (HAS_STORAGE) {
+  try {
+    // Read persisted flag on startup
+    chrome.storage.local.get("KITTEN_DEBUG", (result) => {
+      _enabled = result?.KITTEN_DEBUG === true;
+    });
 
-if (HAS_CHROME) {
-  // Read persisted flag on startup
-  chrome.storage.local.get("KITTEN_DEBUG", (result) => {
-    _enabled = result?.KITTEN_DEBUG === true;
-  });
-
-  // Keep in sync while the panel is open
-  chrome.storage.onChanged.addListener((changes, area) => {
-    if (area === "local" && "KITTEN_DEBUG" in changes) {
-      const prev = _enabled;
-      _enabled = changes.KITTEN_DEBUG.newValue === true;
-      if (!IS_WORKER) {
-        if (_enabled && !prev) {
-          console.info("[KittenTTS] \uD83D\uDC3E Debug logging ENABLED.");
-        } else if (!_enabled && prev) {
-          console.info("[KittenTTS] Debug logging DISABLED.");
+    // Keep in sync while the panel is open
+    if (chrome?.storage?.onChanged) {
+      chrome.storage.onChanged.addListener((changes, area) => {
+        if (area === "local" && "KITTEN_DEBUG" in changes) {
+          const prev = _enabled;
+          _enabled = changes.KITTEN_DEBUG.newValue === true;
+          if (!IS_WORKER) {
+            if (_enabled && !prev) {
+              console.info("[KittenTTS] 🐾 Debug logging ENABLED.");
+            } else if (!_enabled && prev) {
+              console.info("[KittenTTS] Debug logging DISABLED.");
+            }
+          }
         }
-      }
+      });
     }
-  });
+  } catch (_) {
+    // Gracefully handle contexts where storage access is restricted
+  }
 }
 
 // ── Public API ───────────────────────────────────────────────────────────────
@@ -75,7 +79,6 @@ export function dbg(tag, data) {
   if (IS_WORKER) {
     // Relay via worker message so offscreen.js can forward to sidepanel port
     try {
-      // Serialise to avoid "object could not be cloned" on non-transferable values
       const serialised = JSON.parse(JSON.stringify(data ?? null));
       self.postMessage({ type: "TTS_DEBUG_LOG", tag, data: serialised, ts });
     } catch (_) {
@@ -83,14 +86,14 @@ export function dbg(tag, data) {
     }
   }
 
-  // Always write to DevTools console in the current context
+  // Always write to DevTools console in the current context (console.log is visible by default)
   if (typeof data === "string") {
-    console.debug(`[KittenTTS:${tag}]`, data);
+    console.log(`[KittenTTS:${tag}]`, data);
   } else {
     try {
-      console.debug(`[KittenTTS:${tag}]`, JSON.parse(JSON.stringify(data ?? null)));
+      console.log(`[KittenTTS:${tag}]`, JSON.parse(JSON.stringify(data ?? null)));
     } catch (_) {
-      console.debug(`[KittenTTS:${tag}]`, data);
+      console.log(`[KittenTTS:${tag}]`, data);
     }
   }
 }
@@ -101,4 +104,12 @@ export function dbg(tag, data) {
  */
 export function isDebugEnabled() {
   return _enabled;
+}
+
+/**
+ * Manually enable or disable debug logging (essential for Web Workers without chrome.storage).
+ * @param {boolean} val
+ */
+export function setDebugEnabled(val) {
+  _enabled = Boolean(val);
 }

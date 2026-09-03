@@ -78,6 +78,9 @@ chrome.storage.onChanged.addListener((changes, area) => {
     if (changes.preferredSpeed) cachedPrefs.speed = parseFloat(changes.preferredSpeed.newValue || "1.0");
     if (changes.renderBeforePlay) cachedPrefs.renderBeforePlay = changes.renderBeforePlay.newValue;
   }
+  if (area === "local" && "KITTEN_DEBUG" in changes) {
+    chrome.runtime.sendMessage({ target: "offscreen", type: "SET_DEBUG", enabled: changes.KITTEN_DEBUG.newValue === true }).catch(() => {});
+  }
 });
 
 async function getStoredPreferences() {
@@ -281,6 +284,11 @@ chrome.runtime.onInstalled.addListener(() => {
   if (chrome.sidePanel?.setPanelBehavior) {
     chrome.sidePanel.setPanelBehavior({ openPanelOnActionClick: true }).catch(() => { });
   }
+  if (chrome.commands?.getAll) {
+    chrome.commands.getAll((commands) => {
+      console.log("[KittenTTS] Registered keyboard commands:", commands);
+    });
+  }
 });
 
 // 4. Handle Context Menu Actions
@@ -315,12 +323,24 @@ chrome.contextMenus.onClicked.addListener(async (info, tab) => {
 
 // 5. Shortcut Handler
 chrome.commands.onCommand.addListener(async (command, tab) => {
-  if (command === "read_article_command" && tab?.id) {
+  if (command === "read_article_command") {
+    let targetTab = tab;
+    if (!targetTab?.id || !targetTab?.url) {
+      const [activeTab] = await chrome.tabs.query({ active: true, currentWindow: true });
+      targetTab = activeTab;
+    }
+    if (!targetTab?.id) return;
+
     try {
       updateActionBadge("loading", "...", "Extracting article...");
-      const article = await runArticleExtractor(tab);
+      await sendToastToActiveTab({ text: "Extracting article..." });
+      const article = await runArticleExtractor(targetTab);
       if (article?.text) {
+        await sendToastToActiveTab({ text: "Article extracted, starting GPU..." });
         await dispatchPlayText(article.text);
+      } else {
+        updateActionBadge("error", "!", "No readable article found.");
+        await sendToastToActiveTab({ text: "No readable article found on this page." });
       }
     } catch (err) {
       updateActionBadge("error", "!", err.message);

@@ -19,8 +19,10 @@ function extractAndClean(node) {
   let currentBlock = [];
 
   function flushBlock() {
-    const text = currentBlock.join(' ').replace(/\s+/g, ' ').trim();
+    let text = currentBlock.join(' ').replace(/\s+/g, ' ').trim();
     if (text) {
+      // Repair drop-caps (e.g. "T he" -> "The", "I n" -> "In")
+      text = text.replace(/^([A-Z])\s+([a-z]{2,})\b/, '$1$2');
       paragraphs.push(text);
     }
     currentBlock = [];
@@ -62,7 +64,8 @@ function applyLineFilters(lines) {
   const shareRegex = /^share( this)?( article)?$/i;
   const followRegex = /^follow (us|me)/i;
   const relatedRegex = /^related( stories)?:/i;
-  const captionRegex = /^(caption|photo|image):/i;
+  const captionRegex = /^(caption|photo|photograph|image|credit):/i;
+  const photoCreditRegex = /\b(photograph|photo):\s*[^/]+(\/|\s+news\s+agency)/i;
   const nMinReadRegex = /\b\d+\s+min(ute)?s?\s+read\b/gi;
   const apSeparatorRegex = /_{3,}/g;
 
@@ -86,6 +89,7 @@ function applyLineFilters(lines) {
     if (followRegex.test(line) && line.length < 50) continue;
     if (relatedRegex.test(line) && line.length < 100) continue;
     if (captionRegex.test(line) && line.length < 150) continue;
+    if (photoCreditRegex.test(line) && line.length < 150) continue;
 
     if (/your guide to the biggest stories/i.test(line)) continue;
 
