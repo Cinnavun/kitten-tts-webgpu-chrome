@@ -37,7 +37,8 @@ function threeDigitsToWords(n) {
   } else {
     const tensWord = TENS[Math.floor(remainder / 10)];
     const onesWord = ONES[remainder % 10];
-    parts.push(onesWord ? `${tensWord}-${onesWord}` : tensWord);
+    // Use spaces instead of hyphens so neural TTS models maintain clean syllable spacing
+    parts.push(onesWord ? `${tensWord} ${onesWord}` : tensWord);
   }
   return parts.join(" ");
 }
@@ -66,6 +67,24 @@ export function numberToWords(n) {
     scaleIdx++;
   }
   return parts.reverse().join(" ");
+}
+
+export function yearToWords(num) {
+  let val = typeof num === 'string' ? parseInt(num, 10) : Math.trunc(num);
+  if (isNaN(val)) return String(num);
+  if (val >= 2000 && val <= 2009) {
+    return val === 2000 ? "two thousand" : `two thousand ${ONES[val - 2000]}`;
+  }
+  if (val >= 2010 && val <= 2099) {
+    const rem = val % 100;
+    return `twenty ${numberToWords(rem)}`;
+  }
+  const century = Math.floor(val / 100);
+  const remainder = val % 100;
+  const centuryWord = numberToWords(century);
+  if (remainder === 0) return `${centuryWord} hundred`;
+  if (remainder < 10) return `${centuryWord} oh ${numberToWords(remainder)}`;
+  return `${centuryWord} ${numberToWords(remainder)}`;
 }
 
 export function floatToWords(value, decimalSep = "point") {
@@ -109,17 +128,17 @@ const RE_MENTION = /@\w+/g;
 const RE_HTML = /<[^>]+>/g;
 const RE_PUNCT = /[^\w\s.,?!;:\-\u2014\u2013\u2026]/g;
 const RE_SPACES = /\s+/g;
-const RE_NUMBER = /(?<![a-zA-Z])-?\d[\d,]*(?:\.\d+)?/g;
+const RE_NUMBER = /(?<![a-zA-Z])-?\b\d{1,3}(?:,\d{3})+(?:\.\d+)?\b|(?<![a-zA-Z])-?\b\d+(?:\.\d+)?\b/g;
 const RE_ORDINAL = /\b(\d+)(st|nd|rd|th)\b/gi;
 const RE_PERCENT = /(-?\d[\d,]*(?:\.\d+)?)\s*%/g;
 const RE_CURRENCY = /([$€£¥₹₩₿])\s*(\d[\d,]*(?:\.\d+)?)\s*(thousand|thou|million|mil|billion|bil|trillion|k|m|b|t)?(?![a-zA-Z\d])/gi;
 const RE_TIME = /\b(\d{1,2}):(\d{2})(?::(\d{2}))?\s*(am|pm)?\b/gi;
-const RE_RANGE = /(?<!\w)(\d+)-(\d+)(?!\w)/g;
-const RE_MODEL_VER = /\b([a-zA-Z][a-zA-Z0-9]*)-(\d[\d.]*)(?=[^\d.]|$)/g;
+const RE_RANGE = /(?<!\d-)(?<!\w)(\d+)-(\d+)(?!\w)(?!-\d)/g;
+const RE_MODEL_VER = /\b([a-zA-Z][a-zA-Z0-9]*)-(\d[\d.]*)\b(?![a-zA-Z\d.])/g;
 const RE_UNIT = /(\d+(?:\.\d+)?)\s*(km|kg|mg|ml|gb|mb|kb|tb|hz|khz|mhz|ghz|mph|kph|°[cCfF]|[cCfF]°|ms|ns|µs)\b/gi;
-const RE_SCALE = /(?<![a-zA-Z])(\d+(?:\.\d+)?)\s*([KMBT])(?![a-zA-Z\d])/g;
+const RE_SCALE = /(?<![a-zA-Z\-])(?:\b(\d{2,}|\d+\.\d+)\s*([KMBTkmbt])\b|\b([1-9])\s*([KMBTkmbt])\b(?=\s+(?:views|followers|subscribers|users|people|downloads|tokens|params|parameters|bytes|records|devices|hits|sales|copies|streams|visits|impressions|votes|shares|members|students|workers|employees|residents|customers|patients|citizens|fans|dollars|euros|pounds|yen)\b))/g;
 const RE_SCI = /(?<![a-zA-Z\d])(-?\d+(?:\.\d+)?)[eE]([+-]?\d+)(?![a-zA-Z\d])/g;
-const RE_FRACTION = /\b(\d+)\s*\/\s*(\d+)\b/g;
+const RE_FRACTION = /(?<!\/\d+)(?<!\d\/)\b(\d+)\s*\/\s*(\d+)\b(?!\/\d+)/g;
 const RE_DECADE = /\b(\d{1,3})0s\b/gi;
 const RE_LEAD_DEC = /(?<!\d)\.([\d])/g;
 const RE_NO_NUM = /\bno\.\s*(?=\d)/gi;
@@ -127,10 +146,10 @@ const RE_NO_NUM = /\bno\.\s*(?=\d)/gi;
 // Common abbreviations that use periods — must not get spaces inserted after them
 export const ABBREVIATIONS = new Set([
   "mr", "mrs", "ms", "dr", "prof", "sr", "jr", "st", "vs", "etc", "inc",
-  "ltd", "co", "corp", "dept", "univ", "est", "approx", "govt", "assn",
+  "ltd", "co", "corp", "dept", "univ", "approx", "govt", "assn",
   "gen", "sgt", "cpl", "pvt", "capt", "lt", "col", "maj", "cmdr", "adm",
   "rev", "hon", "pres", "gov", "atty", "supt", "det", "msgr", "fr",
-  "no", "op", "ft", "mt", "ave", "blvd", "cl", "ct", "sq", "pl", "sen"
+  "op", "ft", "mt", "ave", "blvd", "cl", "ct", "sq", "pl", "sen"
 ]);
 
 // ─────────────────────────────────────────────
@@ -284,7 +303,10 @@ function expandScientificNotation(text) {
 
 function expandScaleSuffixes(text) {
   const map = { K: "thousand", M: "million", B: "billion", T: "trillion" };
-  return text.replace(RE_SCALE, (m, raw, suffix) => {
+  return text.replace(RE_SCALE, (m, g1, g2, g3, g4) => {
+    const raw = g1 || g3;
+    const suffix = g2 || g4;
+    if (!raw || !suffix) return m;
     let scaleWord = map[suffix.toUpperCase()] || suffix;
     let num = raw.includes(".") ? floatToWords(raw) : numberToWords(parseInt(raw, 10));
     return `${num} ${scaleWord}`;
@@ -292,9 +314,18 @@ function expandScaleSuffixes(text) {
 }
 
 function expandFractions(text) {
+  // Common colloquial slash terms
+  text = text.replace(/\b24\s*\/\s*7\b/g, "twenty-four seven");
+  text = text.replace(/\b9\s*\/\s*11\b/g, "nine eleven");
+  text = text.replace(/\b7\s*\/\s*11\b/g, "seven eleven");
+
+  // Ratings (e.g. 5/5 stars, 10/10 rating)
+  text = text.replace(/\b(\d{1,2})\s*\/\s*(\d{1,2})\b(?=\s+(?:stars?|rating|score|review|points?))/gi, "$1 out of $2");
+
   return text.replace(RE_FRACTION, (m, nRaw, dRaw) => {
     let num = parseInt(nRaw, 10), den = parseInt(dRaw, 10);
     if (den === 0) return m;
+    if (num === den && num <= 100) return `${numberToWords(num)} out of ${numberToWords(den)}`;
     let numWords = numberToWords(num);
     let denomWord = "";
     if (den === 2) denomWord = num === 1 ? "half" : "halves";
@@ -360,7 +391,7 @@ const SUFFIX_ABBREVIATIONS = {
 
 const STANDALONE_ABBREVIATIONS = {
   "vs": "versus", "etc": "et cetera", "dept": "department",
-  "univ": "university", "est": "established", "approx": "approximately",
+  "univ": "university", "approx": "approximately",
   "govt": "government", "assn": "association"
 };
 
@@ -385,6 +416,10 @@ function buildCaseInsensitiveRegex(keys) {
 
 function expandAbbreviations(text) {
   const matchCase = (match, expanded) => match[0] === match[0].toUpperCase() ? expanded.charAt(0).toUpperCase() + expanded.slice(1) : expanded;
+
+  // Established: only when written as "est." with a period (e.g. est. 1990)
+  text = text.replace(/\best\.\s*(\d{3,4})\b/gi, "established $1");
+  text = text.replace(/\best\.\b/gi, "established");
 
   // Contextual 'ft' and 'mt'
   // 1. Preceded by a number: feet (e.g. 50 ft Queenie)
@@ -492,9 +527,13 @@ function stripAbbreviationPeriods(text) {
     return match;
   });
 
-  // Strip periods from single-letter initials and replace with a space 
-  // so the TTS engine spells them out (e.g. U.S.A. -> U S A , J.K. -> J K )
-  text = text.replace(/\b([a-zA-Z])\./g, "$1 ");
+  // Convert dotted initialisms/acronyms to hyphens so the TTS engine spells them out cleanly
+  // (e.g. U.S.A. -> U-S-A, A.I. -> A-I, I.P.O. -> I-P-O, J.K. -> J-K)
+  text = text.replace(/\b([a-zA-Z])\.(?=[a-zA-Z]\.)/g, "$1-");
+  text = text.replace(/\b([a-zA-Z](?:-[a-zA-Z])+)\.(?!\w)/g, "$1");
+
+  // Single middle initials followed by a capitalized name (e.g. John F. Kennedy -> John F Kennedy)
+  text = text.replace(/\b([a-zA-Z])\.(?=\s+[A-Z])/g, "$1 ");
   return text;
 }
 
@@ -503,11 +542,23 @@ function stripAbbreviationPeriods(text) {
 // ─────────────────────────────────────────────
 
 function replaceNumbers(text, replaceFloats = true) {
-  return text.replace(RE_NUMBER, (m) => {
+  // 1. Separate number-hyphen-word constructs (e.g. "3,401-unit" -> "3,401 unit", "10-year" -> "10 year")
+  text = text.replace(/\b(\d[\d,]*)-([a-zA-Z]+)\b/g, "$1 $2");
+
+  return text.replace(RE_NUMBER, (m, offset, fullText) => {
     let raw = m.replace(/,/g, "");
     try {
       if (raw.includes(".") && replaceFloats) return floatToWords(raw);
-      return numberToWords(parseInt(raw, 10));
+      const val = parseInt(raw, 10);
+      // Standalone 4-digit years (1000-2099) — never match numbers with commas (quantities)
+      if (!m.includes(",") && val >= 1000 && val <= 2099 && raw.length === 4) {
+        const prevSlice = fullText.slice(Math.max(0, offset - 20), offset);
+        const isYearContext = /\b(in|since|by|from|circa|until|between|before|after|year|dated|during)\s+$/i.test(prevSlice);
+        if (isYearContext || val >= 1800) {
+          return yearToWords(val);
+        }
+      }
+      return numberToWords(val);
     } catch (e) {
       return m;
     }
@@ -522,6 +573,40 @@ function normalizeQuotes(text) {
   return text
     .replace(/[\u2018\u2019\u02BC]/g, "'")  // curly single quotes + modifier apostrophe → '
     .replace(/[\u201C\u201D]/g, '"');         // curly double quotes → "
+}
+
+/**
+ * Normalize dashes and clause separators.
+ * KittenTTS's WASM phonemizer desynchronizes its word array when encountering
+ * standalone hyphens (" - "), en-dashes (" – "), or unspaced em-dashes ("word—word"),
+ * causing all subsequent words in the chunk to be shifted or skipped entirely.
+ * Converting clause dashes to commas preserves prosodic pauses without token desync.
+ * Intra-word hyphens ("state-of-the-art", "A-I", "twenty-four") are preserved.
+ */
+function normalizeDashes(text) {
+  // 1. Remove bullet points and list hyphens at the start of lines or text
+  text = text.replace(/(^|\n)\s*[-–—*•]+\s+/g, "$1");
+
+  // 2. Convert em-dashes and en-dashes to commas for natural clause pacing
+  text = text.replace(/\s*[—–]\s*/g, ", ");
+
+  // 3. Convert multi-hyphen dashes (e.g. '--' or '---') to commas
+  text = text.replace(/\s*--+\s*/g, ", ");
+
+  // 4. Convert spaced hyphens used as clause separators (e.g. "word - word") to commas
+  // Preserves intra-word hyphens like "state-of-the-art", "A-I", "U-S-A"
+  text = text.replace(/(?<=\S)\s+-\s+(?=\S)/g, ", ");
+  text = text.replace(/(?<=\S)\s+-(?=[a-zA-Z])/g, ", ");
+  text = text.replace(/(?<=[a-zA-Z])-\s+(?=\S)/g, ", ");
+
+  // 5. Remove dangling dashes before punctuation or end of line
+  text = text.replace(/\s+[-–—]+(?=\s*[,.!?;:]|$)/gm, "");
+
+  // 6. Clean up any resulting double commas or comma-spacing artifacts
+  text = text.replace(/,\s*,+/g, ",");
+  text = text.replace(/\s+,/g, ",");
+
+  return text;
 }
 
 function expandContractions(text) {
@@ -547,16 +632,16 @@ function expandContractions(text) {
 function expandSlang(text) {
   const slang = [
     // laughter / reactions
-    [/\blmao+\b/gi, "L M A O"],
-    [/\blmfao+\b/gi, "L M F A O"],
+    [/\blmao+\b/gi, "L-M-A-O"],
+    [/\blmfao+\b/gi, "L-M-F-A-O"],
     [/\brofl\b/gi, "rolling on the floor laughing"],
-    [/\blol+\b/gi, "L O L"],
-    [/\bomg\b/gi, "O M G"],
-    [/\bsmh\b/gi, "S M H"],
+    [/\blol+\b/gi, "L-O-L"],
+    [/\bomg\b/gi, "O-M-G"],
+    [/\bsmh\b/gi, "S-M-H"],
     [/\bistg\b/gi, "I swear to god"],
 
     // intensifiers / filler
-    [/\baf\b/gi, "A F"],
+    [/\baf\b/gi, "A-F"],
     [/\basf\b/gi, "As F"],
     [/\bfr+\b/gi, "for real"],
 
@@ -576,44 +661,44 @@ function expandSlang(text) {
     [/\bbae\b/gi, "bay"],
 
     // knowledge / opinion
-    [/\bidk\b/gi, "I D K"],
+    [/\bidk\b/gi, "I-D-K"],
     [/\bidc\b/gi, "I don't care"],
-    [/\btbh\b/gi, "T B H"],
-    [/\btbf\b/gi, "T B F"],
+    [/\btbh\b/gi, "T-B-H"],
+    [/\btbf\b/gi, "T-B-F"],
     [/\bngl\b/gi, "not gonna lie"],
-    [/\bimo\b/gi, "I M O"],
-    [/\bimho\b/gi, "I M H O"],
+    [/\bimo\b/gi, "I-M-O"],
+    [/\bimho\b/gi, "I-M-H-O"],
     [/\bafaik\b/gi, "as far as I know"],
     [/\bikr\b/gi, "I know right"],
 
     // logistics / time
-    [/\basap\b/gi, "A S A P"],
-    [/\bbrb\b/gi, "B R B"],
+    [/\basap\b/gi, "A-S-A-P"],
+    [/\bbrb\b/gi, "B-R-B"],
     [/\bbrt\b/gi, "be right there"],
     [/\bgtg\b/gi, "gotta go"],
     [/\bg2g\b/gi, "got to go"],
-    [/\bttyl\b/gi, "T T Y L"],
-    [/\bttys\b/gi, "T T Y S"],
-    [/\bnvm\b/gi, "N V M"],
-    [/\bjk\b/gi, "jay kay"],
+    [/\bttyl\b/gi, "T-T-Y-L"],
+    [/\bttys\b/gi, "T-T-Y-S"],
+    [/\bnvm\b/gi, "N-V-M"],
+    [/\bjk\b/gi, "J-K"],
     [/\bjw\b/gi, "just wondering"],
     [/\blmk\b/gi, "lemme know"],
     [/\bhmu\b/gi, "hit me up"],
-    [/\bfyi\b/gi, "F Y I"],
-    [/\bbtw\b/gi, "B T W"],
-    [/\beta\b/gi, "E T A"],
+    [/\bfyi\b/gi, "F-Y-I"],
+    [/\bbtw\b/gi, "B-T-W"],
+    [/\beta\b/gi, "E-T-A"],
 
     // questions
     [/\bwyd\b/gi, "what you doing"],
-    [/\bhbu\b/gi, "H B U"],
+    [/\bhbu\b/gi, "H-B-U"],
     [/\bwbu\b/gi, "whatta bout you"],
     [/\bwdyt\b/gi, "what do you think"],
 
     // life / real talk
-    [/\birl\b/gi, "I R L"],
-    [/\bnbd\b/gi, "N B D"],
-    [/\btmi\b/gi, "T M I"],
-    [/\btldr\b/gi, "T L D R"],
+    [/\birl\b/gi, "I-R-L"],
+    [/\bnbd\b/gi, "N-B-D"],
+    [/\btmi\b/gi, "T-M-I"],
+    [/\btldr\b/gi, "T-L-D-R"],
     [/\bsrsly\b/gi, "seriously"],
     [/\btho\b/gi, "tho"],
     [/\biykyk\b/gi, "if you know you know"],
@@ -628,28 +713,26 @@ function expandSlang(text) {
 }
 
 /**
- * Merge remaining possessives into the base word so the TTS model
- * pronounces them naturally instead of splitting into "word" + "S".
+ * Clean up stray typographical quote artifacts without destroying natural
+ * English possessives ('s), contractions (she's, there's, it's), or names (O'Connor, James's).
  *
- * Runs AFTER contraction expansion (so "it's" → "it is" is already handled)
- * and BEFORE punctuation removal (which would strip the apostrophe leaving a stray "s").
- *
- * Examples:
- *   "Jared's"    → "Jareds"     (TTS says "Jaredz" naturally)
- *   "audience's" → "audiences"  (TTS says "audiencez" naturally)
- *   "kids'"      → "kids"       (trailing apostrophe stripped)
- *   "James's"    → "Jamess"     (TTS handles sibilant naturally)
+ * eSpeak-ng natively handles English apostrophes with proper phonetics:
+ *   "James's"    -> /dʒeɪmzᵻz/ ("James-iz") whereas "Jamess" would be /dʒeɪmɛs/ ("Jay-mess")
+ *   "she's"      -> /ʃiːz/     ("sheez")    whereas "shes"   would be /ʃᵻz/     ("shiz")
+ *   "there's"    -> /ðɛɹz/     ("there's")  whereas "theres" would be /ðɚz/
+ *   "O'Connor"   -> /oʊkɑːnɚ/
+ *   "the kids'"  -> /ðə kɪdz/
  */
 function mergePossessives(text) {
-  // Possessive 's → merge: "Jared's house" → "Jareds house"
-  text = text.replace(/\b(\w+)'s\b/g, "$1s");
-  // Plural possessive s' → drop apostrophe: "the kids' toys" → "the kids toys"
-  text = text.replace(/\b(\w+s)'\b/g, "$1");
-  // Only remove *stray* apostrophes (nested quotes, curly-quote artifacts).
-  // Keep apostrophes that are part of standard contraction suffixes
-  // (n't, 're, 've, 'll, 'd, 'm) so eSpeak can pronounce them naturally
-  // when expand_contractions is disabled.
-  text = text.replace(/'(?!(?:t|re|ve|ll|d|m)\b)/gi, "");
+  // Only remove stray/unmatched quotes from HTML/formatting artifacts:
+  text = text.replace(/(^|\s)'+(\w+)/g, "$1$2");
+  text = text.replace(/(\w+)'+(\s|[.,!?;:]|$)/g, (match, word, trailing) => {
+    // Retain plural possessive apostrophe for words ending in s (e.g. "the kids' toys")
+    if (word.endsWith("s") || word.endsWith("S")) {
+      return `${word}'${trailing}`;
+    }
+    return `${word}${trailing}`;
+  });
   return text;
 }
 
@@ -661,16 +744,21 @@ const DEFAULT_STOPWORDS = new Set([
 ]);
 
 const ACRONYMS_TO_SPELL = new Set([
-  "US", "USA", "NYC", "GPU", "CPU", "USPSTF", "ADA", "AMA", "AHA", "CPA", "USPHS", "ACIP", "AHRQ",
-  "FDA", "USFWS", "USPTO", "PTA", "FOIA", "SaaS", "USPS", "NPU", "TPU", "IUD", "IUP", "MIT", "SMU", "BYU",
-  "ASU", "OSU", "UN", "UNGA", "UNSC", "UNFPA", "API", "CEO", "CFO", "CTO",
+  "US", "USA", "NYC", "IPO", "GPU", "CPU", "USPSTF", "ADA", "AMA", "AHA", "CPA", "USPHS", "ACIP", "AHRQ",
+  "FDA", "USFWS", "USPTO", "PTA", "FOIA", "SaaS", "USPS", "NPU", "TPU", "IUD", "IUP", "MIT",
+  "SMU", "BYU", "ASU", "OSU", "UN", "UNGA", "UNSC", "UNFPA", "API", "CEO", "CFO", "CTO",
   "FBI", "CIA", "NSA", "IRS", "UK", "EU", "URL", "HTTP", "HTTPS", "SSL", "TLS",
   "TCP", "UDP", "DNS", "UI", "UX", "PR", "HR", "HQ", "QA", "QC", "VIP", "DIY",
   "UFO", "ID", "AI", "AGI", "ML", "LLM", "GPT", "TTS", "STT", "NLP", "CV",
   "PDF", "JPG", "PNG", "MP3", "MP4", "WAV", "AVI", "USB", "HDMI", "SSD", "HDD",
   "RAM", "ROM", "PC", "MAC", "OS", "IBM", "AMD", "BBC", "CNN", "NBC", "CBS",
   "ABC", "PBS", "NPR", "MTV", "HBO", "ESPN", "NFL", "NBA", "MLB", "NHL", "LA", "NY", "DC",
-  "AWS", "GCP", "SDK", "IDE", "CLI", "GUI", "CSV", "XML", "JSON", "SVG", "CSS", "SQL", "DB", "VRAM"
+  "AWS", "GCP", "SDK", "IDE", "CLI", "GUI", "CSV", "XML", "JSON", "SVG", "CSS", "SQL", "DB", "VRAM",
+  "SEO", "ROI", "KPI", "FAQ", "ATM", "DOA", "DMV", "DUI", "ECG", "EKG", "EEG", "EPA", "EV",
+  "GPS", "HIV", "ICU", "IP", "IQ", "IRL", "IV", "LLC", "MD", "MRI", "MVP", "NIH", "PAC",
+  "POV", "POS", "SEC", "SEM", "SOS", "SUV", "TBA", "TBD", "UFC", "UPS", "URI", "USP", "VAT",
+  "VPN", "VR", "XR", "AR", "WTO", "API", "NPI", "UMD",
+  "EST", "PST", "CST", "MST", "EDT", "PDT", "CDT", "MDT", "GMT", "UTC"
 ]);
 
 function expandAcronyms(text) {
@@ -711,8 +799,8 @@ function expandAcronyms(text) {
         }
       }
 
-      const spelled = word.split('').join(' ');
-      return plural ? `${spelled} s` : spelled;
+      const spelled = word.split('').join('-');
+      return plural ? `${spelled}'s` : spelled;
     }
     return match;
   });
@@ -720,7 +808,7 @@ function expandAcronyms(text) {
   // Handle "the UN" or "The UN" if written with a lowercase un
   text = text.replace(/\b([Tt]he)\s+(un|UN)\b(?!\-)/g, (match, the, un) => {
     if (un.toLowerCase() === 'un') {
-      return `${the} U N`;
+      return `${the} U-N`;
     }
     return match;
   });
@@ -728,7 +816,7 @@ function expandAcronyms(text) {
   // Handle "the US" or "The US" (or lowercase us)
   text = text.replace(/\b([Tt]he)\s+(us|US)\b/g, (match, the, us) => {
     if (us.toLowerCase() === 'us') {
-      return `${the} U S`;
+      return `${the} U-S`;
     }
     return match;
   });
@@ -744,7 +832,7 @@ function expandAcronyms(text) {
 export class TextPreprocessor {
   constructor(options = {}) {
     this.config = {
-      lowercase: true,
+      lowercase: false,
       replace_numbers: true,
       replace_floats: true,
       expand_abbreviations: true,
@@ -821,6 +909,7 @@ export class TextPreprocessor {
     if (cfg.expand_model_names) text = expandModelNames(text);
     if (cfg.expand_roman_numerals) text = expandRomanNumerals(text);
     if (cfg.replace_numbers) text = replaceNumbers(text, cfg.replace_floats);
+    text = normalizeDashes(text);
 
     if (cfg.remove_accents) {
       text = text.normalize("NFD").replace(/[\u0300-\u036f]/g, "");

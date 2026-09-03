@@ -268,7 +268,8 @@ async function startPlayback(textToPlay) {
       model,
       cacheKey,
       renderBeforePlay,
-      autoplay
+      autoplay,
+      debug: debugToggle?.checked || false
     });
   }
 
@@ -513,6 +514,7 @@ chrome.storage.onChanged.addListener((changes, area) => {
 // Toggle handler — persist to storage (picked up by all contexts via onChanged)
 debugToggle?.addEventListener("change", () => {
   chrome.storage.local.set({ KITTEN_DEBUG: debugToggle.checked });
+  chrome.runtime.sendMessage({ target: "offscreen", type: "SET_DEBUG", enabled: debugToggle.checked }).catch(() => {});
   if (debugToggle.checked && debugEntries.length === 0) {
     if (debugLog) debugLog.value = "-- debug enabled: trigger a Play to see events --";
   }

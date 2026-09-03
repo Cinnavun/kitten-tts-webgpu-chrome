@@ -6,7 +6,7 @@ const DB_VERSION = 1;
 
 export async function generateCacheKey(text, voice, speed, model) {
   const encoder = new TextEncoder();
-  const data = encoder.encode(JSON.stringify({ text, voice, speed, model }));
+  const data = encoder.encode(JSON.stringify({ v: "v1.3.5", text, voice, speed, model }));
   const hashBuffer = await crypto.subtle.digest("SHA-256", data);
   const hashArray = Array.from(new Uint8Array(hashBuffer));
   return hashArray.map(b => b.toString(16).padStart(2, "0")).join("");

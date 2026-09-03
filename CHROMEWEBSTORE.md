@@ -1,6 +1,6 @@
 # Chrome Web Store Listing — Kitten TTS WebGPU Chrome
 
-> Last Updated: 2026-08-31
+> Last Updated: 2026-09-02
 
 ## Store Listing
 
@@ -18,6 +18,7 @@ Features:
 - Smart article extraction grabs only the readable content from web pages, stripping out clutter.
 - Choose from 8 unique, high-quality voices (male and female).
 - Highlight any text and press Alt+Shift+K, or right-click to read aloud instantly.
+- Press Alt+Shift+A on any article to automatically scan, extract, and listen in the background.
 - Export your synthesized audio directly to a .wav file for offline listening.
 
 Kitten TTS provides a completely private, zero-latency way to consume web content audibly.
