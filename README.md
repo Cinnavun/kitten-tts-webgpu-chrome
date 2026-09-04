@@ -1,8 +1,16 @@
 # 🐾 Kitten TTS WebGPU — Chrome Extension
 
-A fast, private, 100% on-device Text-to-Speech Chrome extension powered by **WebGPU** and **KittenTTS**. Run lightweight, neural voice synthesis locally in your browser with zero server latency, zero API costs, and complete privacy.
+A private, 100% on-device Text-to-Speech Chrome extension powered by **WebGPU** and **KittenTTS**. Run lightweight, neural voice synthesis locally in your browser at no cost, and complete privacy.
 
 \---
+
+## Why did I make this? - The Human Component
+* I believe we need to democratize access to local tools to pre-empt a decline into software serfdom
+* Data privacy should be the default, not something that costs extra, is conditional, or something sacrificed for convenience
+* Some browsers have nice TTS & readers, but it's not private or offline...
+  - The articles you read today should not become data, fed to an algorithm which determines the online world you see tomorrow 
+* Brave's read-aloud TTS uses default on-device pass-through voices which can be very robotic
+* None of them let you synthesize a full page article to TTS audio and save the audio after for free
 
 ## ✨ Features
 
