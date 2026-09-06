@@ -1,6 +1,6 @@
 const BLOCK_TAGS = new Set([
-  'P', 'H1', 'H2', 'H3', 'H4', 'H5', 'H6', 
-  'DIV', 'LI', 'BLOCKQUOTE', 'TD', 'TH', 
+  'P', 'H1', 'H2', 'H3', 'H4', 'H5', 'H6',
+  'DIV', 'LI', 'BLOCKQUOTE', 'TD', 'TH',
   'ARTICLE', 'SECTION', 'FIGURE', 'FIGCAPTION', 'UL', 'OL'
 ]);
 
@@ -57,7 +57,16 @@ export function stripCaptionUI(doc) {
     console.warn('[stripCaptionUI] Selector query error:', err);
   }
 
-  // 2. Scoped text-matched removal: strictly within figure/figcaption contexts
+  // 2. Strip credit chrome (e.g. span.credit, [class*="credit" i], [aria-label="Image credit" i])
+  try {
+    doc.querySelectorAll(
+      'span.credit, [class*="credit" i], [aria-label="Image credit" i]'
+    ).forEach(el => el.remove());
+  } catch (err) {
+    console.warn('[stripCaptionUI] Credit selector query error:', err);
+  }
+
+  // 3. Scoped text-matched removal: strictly within figure/figcaption contexts
   try {
     const candidates = doc.querySelectorAll('figure *, figcaption *');
     for (const el of candidates) {
@@ -195,9 +204,11 @@ function applyLineFilters(lines) {
 
     if (/your guide to the biggest stories/i.test(line)) continue;
 
-    // dedupe pass
-    if (cleanedLines.length > 0 && cleanedLines[cleanedLines.length - 1] === line) {
-      continue;
+    // dedupe pass: drop exact duplicates or suffix duplicates (e.g. repeated photographer/outlet line)
+    if (cleanedLines.length > 0) {
+      const prev = cleanedLines[cleanedLines.length - 1];
+      if (prev === line) continue;
+      if (line.length >= 16 && prev.endsWith(line)) continue;
     }
 
     cleanedLines.push(line);

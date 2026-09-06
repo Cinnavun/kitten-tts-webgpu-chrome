@@ -132,7 +132,7 @@ const RE_NUMBER = /(?<!\w)-?\b\d{1,3}(?:,\d{3})+(?:\.\d+)?\b|(?<!\w)-?\b\d+(?:\.
 const RE_ORDINAL = /\b(\d+)(st|nd|rd|th)\b/gi;
 const RE_PERCENT = /(-?\d[\d,]*(?:\.\d+)?)\s*%/g;
 const RE_CURRENCY = /([$€£¥₹₩₿])\s*(\d[\d,]*(?:\.\d+)?)\s*(thousand|thou|million|mil|billion|bil|trillion|k|m|b|t)?(?![a-zA-Z\d])/gi;
-const RE_TIME = /\b(\d{1,2}):(\d{2})(?::(\d{2}))?\s*(am|pm)?\b/gi;
+const RE_TIME = /\b(\d{1,2}):(\d{2})(?::(\d{2}))?(?:\s*(am|pm|a-m|p-m|A-M|P-M)\b)?/gi;
 const RE_RANGE = /(?<!\d\s*[-–—])(?<![\w.,])(\d{1,3}(?:,\d{3})+(?:\.\d+)?|\d+(?:\.\d+)?)\s*[-–—]\s*(\d{1,3}(?:,\d{3})+(?:\.\d+)?|\d+(?:\.\d+)?)(?![\w.,])(?![-–—]\s*\d)/g;
 const RE_MODEL_VER = /\b([a-zA-Z][a-zA-Z0-9]*)-(\d[\d.]*)\b(?![a-zA-Z\d.])/g;
 const RE_UNIT = /(\d+(?:\.\d+)?)\s*(km|kg|mg|ml|gb|mb|kb|tb|hz|khz|mhz|ghz|mph|kph|°[cCfF]|[cCfF]°|ms|ns|µs)\b/gi;
@@ -252,7 +252,10 @@ function expandCurrency(text) {
 
 function expandTime(text) {
   return text.replace(RE_TIME, (m, h, mins, secs, suffixRaw) => {
-    let suffix = suffixRaw ? " " + suffixRaw.toLowerCase() : "";
+    let suffix = "";
+    if (suffixRaw) {
+      suffix = " " + (suffixRaw.toLowerCase().includes("p") ? "P-M" : "A-M");
+    }
     let hWords = numberToWords(parseInt(h, 10));
     let mNum = parseInt(mins, 10);
 
@@ -582,6 +585,12 @@ export function fixMissingSentenceSpacing(text) {
 }
 
 function stripAbbreviationPeriods(text) {
+  // Carve out meridiem before general initialisms: force uppercase A-M / P-M.
+  // Requiring the dot ensures "I am" is never touched.
+  text = text.replace(/\b([AaPp])\.\s*([Mm])(?:\.(?!\w)|\b)/g, (_, ap) =>
+    ap.toLowerCase() === "p" ? "P-M" : "A-M"
+  );
+
   text = text.replace(/\b([a-zA-Z]+)\./g, (match, word) => {
     if (ABBREVIATIONS.has(word.toLowerCase())) {
       return word; // strip the period

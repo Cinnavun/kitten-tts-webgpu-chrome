@@ -2,6 +2,19 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.13] / [1.3.15] - 2026-09-06
+
+### Meridiem Enunciation & Image Credit Deduplication
+- **Uppercase Meridiem Expansion (`A-M` / `P-M`)**:
+  - In `stripAbbreviationPeriods()` ([`src/textpreprocessor.js`](file:///c:/Users/llsha/Documents/Atomic_chat/Kitten-tts-webgpu-Chrome/src/textpreprocessor.js)), carved out dotted meridiem (`a.m.`, `p.m.`, `A.M.`, `P.M.`, `a. m.`, `p. m.`) before the general dotted initialism hyphenator, expanding them directly to uppercase `A-M` and `P-M`.
+  - Lowercase `a` is parsed by eSpeak-ng as the English indefinite article `/ɐ/` (*"uh"*), which caused lowercase `a-m` to slur into *"uh-mm"* (`/ɐm/`). Uppercase `A-M` and `P-M` invoke true letter-name pronunciation (`ˈeɪˈɛm` and `pˈiːˈɛm`), matching `B-B-Q` and `R-N-S`.
+  - Preserved plain words like *"I am"* by requiring the dotted format (`([AaPp])\.\s*([Mm])(?:\.(?!\w)|\b)`).
+  - Updated `RE_TIME` and `expandTime()` in [`src/textpreprocessor.js`](file:///c:/Users/llsha/Documents/Atomic_chat/Kitten-tts-webgpu-Chrome/src/textpreprocessor.js) to recognize `A-M` / `P-M` suffixes and prevent optional suffix whitespace consumption from eating spaces before subsequent words.
+- **Image Credit Chrome Stripping & Suffix Deduplication**:
+  - In `stripCaptionUI()` ([`src/articleCleaner.js`](file:///c:/Users/llsha/Documents/Atomic_chat/Kitten-tts-webgpu-Chrome/src/articleCleaner.js)), added explicit DOM removal for credit chrome elements: `span.credit, [class*="credit" i], [aria-label="Image credit" i]`.
+  - In `applyLineFilters()` ([`src/articleCleaner.js`](file:///c:/Users/llsha/Documents/Atomic_chat/Kitten-tts-webgpu-Chrome/src/articleCleaner.js)), added suffix-deduplication (`if (line.length >= 16 && prev.endsWith(line)) continue;`), dropping trailing sibling credit chunks (e.g. Religion News Service / AP credit lines) when the text was already flushed as part of the caption block.
+  - Updated and expanded test suites in [`scripts/test-preprocessor.mjs`](file:///c:/Users/llsha/Documents/Atomic_chat/Kitten-tts-webgpu-Chrome/scripts/test-preprocessor.mjs) and [`scripts/test-article-cleaner.mjs`](file:///c:/Users/llsha/Documents/Atomic_chat/Kitten-tts-webgpu-Chrome/scripts/test-article-cleaner.mjs). Rebuilt production bundles in `dist/`.
+
 ## [1.12] / [1.3.14] - 2026-09-06
 
 ### Store Branding, Least-Privilege Permission Migration & CWS Optimization
