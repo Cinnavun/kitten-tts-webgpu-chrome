@@ -130,22 +130,22 @@ function updateActionBadge(state, text = "", tooltip = "") {
   if (state === "loading") {
     chrome.action.setBadgeText({ text: text || "..." });
     chrome.action.setBadgeBackgroundColor({ color: "#6366f1" }); // Indigo
-    chrome.action.setTitle({ title: tooltip || `Kitten TTS: Synthesizing (${text})` });
+    chrome.action.setTitle({ title: tooltip || `Mews Reader: Synthesizing (${text})` });
   } else if (state === "playing") {
     chrome.action.setBadgeText({ text: "▶" });
     chrome.action.setBadgeBackgroundColor({ color: "#10b981" }); // Green
-    chrome.action.setTitle({ title: tooltip || "Kitten TTS: Playing audio" });
+    chrome.action.setTitle({ title: tooltip || "Mews Reader: Playing audio" });
   } else if (state === "error") {
     chrome.action.setBadgeText({ text: "!" });
     chrome.action.setBadgeBackgroundColor({ color: "#ef4444" }); // Red
-    chrome.action.setTitle({ title: `Kitten TTS Error: ${tooltip}` });
+    chrome.action.setTitle({ title: `Mews Reader Error: ${tooltip}` });
     setTimeout(() => {
       chrome.action.setBadgeText({ text: "" });
-      chrome.action.setTitle({ title: "Kitten TTS WebGPU Chrome" });
+      chrome.action.setTitle({ title: "Mews Reader: Private Full-Page TTS" });
     }, 4500);
   } else if (state === "idle") {
     chrome.action.setBadgeText({ text: "" });
-    chrome.action.setTitle({ title: "Kitten TTS WebGPU Chrome" });
+    chrome.action.setTitle({ title: "Mews Reader: Private Full-Page TTS" });
   }
 }
 
@@ -190,7 +190,7 @@ async function sendToastToActiveTab(payload) {
             chrome.notifications.create({
               type: "basic",
               iconUrl: "icons/icon48.png",
-              title: "Kitten TTS",
+              title: "Mews Reader",
               message: payload.text
             });
           }
@@ -201,7 +201,7 @@ async function sendToastToActiveTab(payload) {
           chrome.notifications.create({
             type: "basic",
             iconUrl: "icons/icon48.png",
-            title: "Kitten TTS",
+            title: "Mews Reader",
             message: payload.text
           });
         }
@@ -281,7 +281,7 @@ chrome.runtime.onInstalled.addListener(() => {
     });
     chrome.contextMenus.create({
       id: "page-open-panel-only",
-      title: "🐾 Open Kitten TTS Side Panel",
+      title: "🐾 Open Mews Reader Side Panel",
       contexts: ["page"]
     });
   });
@@ -330,7 +330,7 @@ chrome.contextMenus.onClicked.addListener(async (info, tab) => {
 chrome.commands.onCommand.addListener(async (command, tab) => {
   if (command === "read_article_command") {
     let targetTab = tab;
-    if (!targetTab?.id || !targetTab?.url) {
+    if (!targetTab?.id) {
       const [activeTab] = await chrome.tabs.query({ active: true, currentWindow: true });
       targetTab = activeTab;
     }
@@ -415,14 +415,26 @@ chrome.runtime.onConnect.addListener((port) => {
 chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
 
   if (msg.type === "ENSURE_OFFSCREEN") {
-    setupOffscreenDocument().then(() => sendResponse({ ready: true }));
+    (async () => {
+      try {
+        await setupOffscreenDocument();
+        sendResponse({ ready: true });
+      } catch (err) {
+        sendResponse({ ready: false, error: err.message });
+      }
+    })();
     return true;
   }
 
   if (msg.type === "CLEAR_AUDIO_CACHE") {
-    clearAudioCache()
-      .then(() => sendResponse({ success: true, message: "Audio cache cleared." }))
-      .catch(err => sendResponse({ success: false, error: err.message }));
+    (async () => {
+      try {
+        await clearAudioCache();
+        sendResponse({ success: true, message: "Audio cache cleared." });
+      } catch (err) {
+        sendResponse({ success: false, error: err.message });
+      }
+    })();
     return true;
   }
 

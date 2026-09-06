@@ -48,7 +48,7 @@ Kitten TTS WebGPU builds upon the excellent work of many open-source projects. T
 ### phonemizer
 - **Author:** Xenova
 - **License:** Apache-2.0
-- **Repository:** https://huggingface.co/Xenova/multilingual-e5-small
+- **Repository:** https://github.com/xenova/transformers.js
 - **Purpose:** Converts text to phonemes for TTS synthesis
 - **Use in Extension:** Bundled via kitten-tts-webgpu
 

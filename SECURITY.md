@@ -81,7 +81,7 @@ This extension is inherently secure because:
 
 Critical security updates are released as:
 
-1. **GitHub Release:** https://github.com/your-username/kitten-tts-webgpu-chrome/releases
+1. **GitHub Release:** https://github.com/cinnavun/kitten-tts-webgpu-chrome/releases
    - Download source code to verify
    - Includes SHA-256 checksums
 

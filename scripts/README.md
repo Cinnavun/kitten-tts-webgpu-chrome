@@ -35,7 +35,7 @@ This will:
    - `content.js` (In-page toast content script)
    - `LICENSE` (GPL-3.0 license)
    - `icons/` (icon16, icon32, icon48, icon128)
-   - `models/` (Local nano ONNX model & voice weights)
+   - `models/` (Local nano, micro, and mini ONNX models & dedicated voice weights: voices.npz, voices_micro.npz, voices_mini.npz)
    - `dist/` (Bundled worker, background service worker, offscreen, sidepanel, readability extractor, and pronunciation rules)
 4. Run pre-flight checks on `manifest.json` and verify all required internal paths exist.
 
@@ -89,7 +89,7 @@ This creates `kitten-tts-webgpu-chrome-store.zip` at the project root with optim
 | **Configuration** | `manifest.json`, `LICENSE` | `package.json`, `package-lock.json`, `tsconfig.json`, `.gitattributes`, `.gitignore` |
 | **UI & Styling** | `sidepanel.html`, `sidepanel.css`, `offscreen.html` | Source HTML mockups |
 | **Scripts** | `content.js`, `dist/background.js`, `dist/sidepanel.js`, `dist/offscreen.js`, `dist/extractor.js`, `dist/worker.js` | `src/` (TypeScript/ESM source code), `node_modules/`, `scripts/`, `background.js` (source) |
-| **Models & Rules** | `models/kitten_tts_nano_v0_8.onnx`, `models/kitten_tts_micro_v0_8.onnx`, `models/kitten_tts_mini_v0_8.onnx`, `models/voices.npz`, `dist/espeak-en-dict.tsv`, `dist/en_rules` | `assets/` raw source files |
+| **Models & Rules** | `models/kitten_tts_nano_v0_8.onnx`, `models/kitten_tts_micro_v0_8.onnx`, `models/kitten_tts_mini_v0_8.onnx`, `models/voices.npz`, `models/voices_micro.npz`, `models/voices_mini.npz`, `dist/espeak-en-dict.tsv`, `dist/en_rules` | `assets/` raw source files |
 | **Assets** | `icons/icon*.png` | `images/` (promo tiles and screenshots uploaded directly in developer console), markdown docs (`README.md`, `CHANGELOG.md`, `CHROMEWEBSTORE.md`) |
 
 ---

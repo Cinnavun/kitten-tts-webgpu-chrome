@@ -10,16 +10,28 @@ const MODELS_DIR = path.resolve(__dirname, '..', 'models');
 
 const MODELS_TO_DOWNLOAD = [
   {
-    name: 'micro',
+    name: 'micro model',
     fileName: 'kitten_tts_micro_v0_8.onnx',
     url: 'https://huggingface.co/KittenML/kitten-tts-micro-0.8/resolve/main/kitten_tts_micro_v0_8.onnx',
     expectedMinSize: 35 * 1024 * 1024 // ~41 MB
   },
   {
-    name: 'mini',
+    name: 'mini model',
     fileName: 'kitten_tts_mini_v0_8.onnx',
     url: 'https://huggingface.co/KittenML/kitten-tts-mini-0.8/resolve/main/kitten_tts_mini_v0_8.onnx',
     expectedMinSize: 70 * 1024 * 1024 // ~78 MB
+  },
+  {
+    name: 'micro voices',
+    fileName: 'voices_micro.npz',
+    url: 'https://huggingface.co/KittenML/kitten-tts-micro-0.8/resolve/main/voices.npz',
+    expectedMinSize: 3 * 1024 * 1024 // ~3.3 MB
+  },
+  {
+    name: 'mini voices',
+    fileName: 'voices_mini.npz',
+    url: 'https://huggingface.co/KittenML/kitten-tts-mini-0.8/resolve/main/voices.npz',
+    expectedMinSize: 3 * 1024 * 1024 // ~3.3 MB
   }
 ];
 

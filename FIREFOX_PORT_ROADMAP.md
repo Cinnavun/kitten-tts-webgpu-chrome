@@ -47,7 +47,7 @@ Files to adapt:
 - [ ] Load unpacked in Firefox
 - [ ] Test all features (TTS, article extraction, caching)
 - [ ] Verify audio playback works
-- [ ] Test model downloads and caching
+- [ ] Test pre-bundled local model loading and caching
 - [ ] Verify performance on various GPUs
 
 ### Phase 6: Firefox Store Submission (1 day)

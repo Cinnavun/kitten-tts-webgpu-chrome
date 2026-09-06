@@ -29,7 +29,7 @@ if (outIndex !== -1 && args[outIndex + 1]) {
   outputDirName = args[outIndex + 1];
 }
 
-let zipFileName = 'kitten-tts-webgpu-chrome-store.zip';
+let zipFileName = 'mews-reader-store.zip';
 const zipFileIndex = args.findIndex(a => a === '--zip-file');
 if (zipFileIndex !== -1 && args[zipFileIndex + 1]) {
   zipFileName = args[zipFileIndex + 1];
@@ -45,7 +45,7 @@ const REQUIRED_ITEMS = [
   { path: 'sidepanel.css', type: 'file', required: true },
   { path: 'offscreen.html', type: 'file', required: true },
   { path: 'content.js', type: 'file', required: true },
-  { path: 'LICENSE', type: 'file', required: false },
+  { path: 'LICENSE', type: 'file', required: true },
   { path: 'icons', type: 'dir', required: true },
   { path: 'models', type: 'dir', required: true },
   { path: 'dist', type: 'dir', required: true }
@@ -67,7 +67,9 @@ const CRITICAL_INTERNAL_CHECKS = [
   'models/kitten_tts_nano_v0_8.onnx',
   'models/kitten_tts_micro_v0_8.onnx',
   'models/kitten_tts_mini_v0_8.onnx',
-  'models/voices.npz'
+  'models/voices.npz',
+  'models/voices_micro.npz',
+  'models/voices_mini.npz'
 ];
 
 /**

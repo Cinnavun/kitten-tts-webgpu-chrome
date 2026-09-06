@@ -71,20 +71,17 @@ Saves preferences in chrome.storage.local only. No transmission.
 ### offscreen
 Runs WebGPU synthesis locally. No data collected.
 
-### activeTab
-Accesses current webpage for extraction only.
-
 ### scripting
-Injects Mozilla Readability for local HTML parsing.
+Injects the local readable article extractor into the active webpage when requested. No data collected.
 
 ### tabs
-Tracks tab state for UI lifecycle.
+Queries active tab ID and URL to coordinate article extraction and keyboard shortcuts. No browsing history is tracked or retained.
 
 ### notifications
-Sends local notifications. No data collected.
+Sends local notifications for status alerts or errors during background processing. No data collected.
 
-### host_permissions
-Optional permissions for web page access.
+### optional_host_permissions (http://*/*, https://*/*)
+Optional permission requested strictly on user action when scanning a web article for text-to-speech. No page data is transmitted off-device.
 
 ---
 

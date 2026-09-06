@@ -62,7 +62,7 @@ Due to Manifest V3 service worker constraints around Web Audio and WebGPU, synth
 
 ```bash
 # Clone the repository
-git clone [https://github.com/cinnavun/kitten-tts-webgpu-chrome.git](https://github.com/your-username/kitten-tts-webgpu-chrome.git)
+git clone https://github.com/cinnavun/kitten-tts-webgpu-chrome.git
 cd kitten-tts-webgpu-chrome
 
 # Install dependencies

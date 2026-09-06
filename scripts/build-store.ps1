@@ -10,7 +10,7 @@
 param(
   [string]$OutputDir = "dist-store",
   [switch]$Zip,
-  [string]$OutputPath = "kitten-tts-webgpu-chrome-store.zip"
+  [string]$OutputPath = "mews-reader-store.zip"
 )
 
 $ErrorActionPreference = "Stop"
@@ -42,7 +42,9 @@ $criticalFiles = @(
   'models\kitten_tts_nano_v0_8.onnx',
   'models\kitten_tts_micro_v0_8.onnx',
   'models\kitten_tts_mini_v0_8.onnx',
-  'models\voices.npz'
+  'models\voices.npz',
+  'models\voices_micro.npz',
+  'models\voices_mini.npz'
 )
 
 Write-Host "====================================================" -ForegroundColor Cyan

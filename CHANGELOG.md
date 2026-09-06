@@ -2,6 +2,45 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.12] / [1.3.14] - 2026-09-06
+
+### Store Branding, Least-Privilege Permission Migration & CWS Optimization
+- **Rebranded to "Mews Reader: Private Full-Page TTS"**:
+  - Renamed the extension from "Kitten TTS WebGPU" to "Mews Reader: Private Full-Page TTS" to avoid trademark/copyright ambiguity with KittenML while preserving proper attribution.
+  - Synchronized the manifest name identically with the store listing name across `manifest.json`, `sidepanel.html`, `background.js`, `scripts/build-store.js`, `scripts/build-store.ps1`, and `CHROMEWEBSTORE.md`.
+- **Permission Migration from `tabs` to `activeTab` (Least Privilege & Zero History Warning)**:
+  - Eliminated the broad `"tabs"` permission from `manifest.json`, removing Chrome's high-risk installation warning (*"Read your browsing history"*).
+  - Adopted `"activeTab"` alongside existing `optional_host_permissions` (`http://*/*`, `https://*/*`), strictly observing the Principle of Least Privilege.
+  - Context menu reading and `Alt+Shift+A` shortcuts now activate temporary tab execution via `activeTab` immediately on any page, fixing fresh-install script injection restrictions.
+  - In `background.js`, simplified `commands.onCommand` active tab resolution to check `!targetTab?.id` directly, removing unnecessary dependence on `targetTab?.url`.
+- **Store Listing Policy & Differentiation Optimization (`CHROMEWEBSTORE.md`)**:
+  - Implemented Google's spam policy guardrails, ensuring no single keyword repeats more than ~5 times across the entire detailed description.
+  - Placed key value propositions ("WebGPU", "on-device", "offline", "no cloud", "privacy") prominently within the 132-character short description and lead paragraph.
+  - Incorporated clear, ethical single-line attribution: *"Powered by the KittenTTS model by KittenML (Apache-2.0), running fully on-device via WebGPU."*
+  - Updated review justification table with specific rationale for `activeTab`.
+
+## [1.12] / [1.3.13] - 2026-09-06
+
+### Chrome Web Store Pre-Flight Compliance, License Verification & Store Readiness
+- **Comprehensive Store Documentation (`CHROMEWEBSTORE.md`)**:
+  - Authored official `CHROMEWEBSTORE.md` in project root following Chrome Web Store guidelines.
+  - Added copy-paste store listing metadata (name, 132-character short description, user-benefit detailed description, accessibility category, and single-purpose statement).
+  - Authored explicit plain-English review justifications for each declared permission (`contextMenus`, `sidePanel`, `storage`, `offscreen`, `scripting`, `tabs`, `notifications`) and `optional_host_permissions` (`http://*/*`, `https://*/*`).
+  - Documented complete Privacy & Data Use disclosures (zero data collected, zero off-device transmission, zero tracking).
+  - Cataloged visual assets from `images/` (store icon, 1280x800 dark/light screenshots, context menu demo, 440x280 promo tile).
+- **License Compliance & Build Packaging Enforcements**:
+  - Verified and confirmed that the GPL-3.0 `LICENSE` file is strictly bundled in the root of the Chrome Web Store submission ZIP package to ensure compliance with GNU GPLv3 §4–§6.
+  - Updated `REQUIRED_ITEMS` in `scripts/build-store.js` to set `LICENSE` to `required: true`, preventing packaging if the license is missing.
+- **Async/Await Refactoring & Robust Error Handling**:
+  - Replaced the last remaining `.then()` chains in `background.js` (`ENSURE_OFFSCREEN` and `CLEAR_AUDIO_CACHE`) with standard `async/await` wrapped in async IIFEs, ensuring 100% adherence to MV3 async/await best practices.
+  - Added explicit `try/catch` error handling to `ENSURE_OFFSCREEN` in `background.js`, ensuring `sendResponse({ ready: false, error: err.message })` fires if offscreen document setup rejects, preventing hung message channels and `"The message port closed before a response was received"` runtime errors.
+- **Cross-Documentation & Version Alignment**:
+  - Synchronized `package.json` version from `1.11` to `1.12` matching `manifest.json`.
+  - Cleaned up repository placeholders (`your-username` -> `cinnavun`) in `README.md` and `SECURITY.md`.
+  - Corrected `phonemizer` repository attribution in `ATTRIBUTION.md` from an errant HuggingFace model link to Xenova's GitHub repo.
+  - Aligned permissions list in `PRIVACY_POLICY.md` (removed stale `activeTab` reference; accurately described `tabs` and `optional_host_permissions`).
+  - Updated staged asset lists in `scripts/README.md` and testing checklist in `FIREFOX_PORT_ROADMAP.md` to reflect that all 3 models and dedicated voice latents (`voices.npz`, `voices_micro.npz`, `voices_mini.npz`) are pre-bundled locally.
+
 ## [1.3.12] - 2026-09-06
 
 ### Local Pre-Bundling of All 3 Models & Air-Gapped Security Hardening
