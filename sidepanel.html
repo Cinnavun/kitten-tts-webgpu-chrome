@@ -1,184 +1,194 @@
 <!doctype html>
 <html lang="en">
-  <head>
-    <meta charset="utf-8" />
-    <title>Kitten TTS WebGPU Chrome</title>
-    <link rel="stylesheet" href="sidepanel.css" />
-  </head>
-  <body>
-    <!-- Header -->
-    <div class="app-header">
-      <div class="brand">
-        <span class="brand-avatar">🐾</span>
-        <div class="brand-name">Kitten TTS</div>
-        <span class="badge-gpu">WebGPU</span>
-      </div>
-      <select id="themeSelect" class="theme-select">
-        <option value="auto">Auto</option>
-        <option value="light">Light</option>
-        <option value="dark">Dark</option>
-      </select>
-    </div>
 
-    <!-- Settings Card -->
-    <div class="card">
-      <div class="control-row">
-        <div>
-          <label for="voiceSelect">Voice</label>
-          <select id="voiceSelect">
-            <optgroup label="Male">
-              <option value="Jasper" selected>Jasper</option>
-              <option value="Bruno">Bruno</option>
-              <option value="Hugo">Hugo</option>
-              <option value="Leo">Leo</option>
-            </optgroup>
-            <optgroup label="Female">
-              <option value="Kiki">Kiki</option>
-              <option value="Luna">Luna</option>
-              <option value="Rosie">Rosie</option>
-              <option value="Bella">Bella</option>
-            </optgroup>
-          </select>
-        </div>
-        <div>
-          <label for="modelSelect">Quality</label>
-          <select id="modelSelect">
-            <option value="nano">Nano (24MB)</option>
-            <option value="micro">Micro (41MB)</option>
-            <option value="mini">Mini (78MB)</option>
-          </select>
-        </div>
+<head>
+  <meta charset="utf-8" />
+  <title>Kitten TTS WebGPU Chrome</title>
+  <link rel="stylesheet" href="sidepanel.css" />
+</head>
+
+<body>
+  <!-- Header -->
+  <div class="app-header">
+    <div class="brand">
+      <span class="brand-avatar">🐾</span>
+      <div class="brand-name">Kitten TTS</div>
+      <span class="badge-gpu">WebGPU</span>
+    </div>
+    <select id="themeSelect" class="theme-select">
+      <option value="auto">Auto</option>
+      <option value="light">Light</option>
+      <option value="dark">Dark</option>
+    </select>
+  </div>
+
+  <!-- Settings Card -->
+  <div class="card">
+    <div class="control-row">
+      <div>
+        <label for="voiceSelect">Voice</label>
+        <select id="voiceSelect">
+          <optgroup label="Male">
+            <option value="Jasper" selected>Jasper</option>
+            <option value="Bruno">Bruno</option>
+            <option value="Hugo">Hugo</option>
+            <option value="Leo">Leo</option>
+          </optgroup>
+          <optgroup label="Female">
+            <option value="Kiki">Kiki</option>
+            <option value="Luna">Luna</option>
+            <option value="Rosie">Rosie</option>
+            <option value="Bella">Bella</option>
+          </optgroup>
+        </select>
       </div>
       <div>
-        <label for="speedInput">
-          <span>Speed</span>
-          <span id="speedValue" class="slider-pill">1.0x</span>
-        </label>
-        <div class="slider-track">
-          <input
-            type="range"
-            id="speedInput"
-            min="0.5"
-            max="2.0"
-            step="0.1"
-            value="1.0"
-          />
-        </div>
+        <label for="modelSelect">Quality</label>
+        <select id="modelSelect">
+          <option value="nano">Nano (24MB)</option>
+          <option value="micro">Micro (41MB)</option>
+          <option value="mini">Mini (78MB)</option>
+        </select>
       </div>
-
-      <div class="toggle-container" style="margin-top: 12px;">
-        <label class="toggle-switch">
-          <input type="checkbox" id="renderBeforePlayToggle" />
-          <span class="toggle-slider"></span>
-        </label>
-        <label for="renderBeforePlayToggle" class="toggle-label">
-          Pre-render full audio before playback (reduces stutter on slow GPUs)
-        </label>
-      </div>
-
-      <div class="toggle-container" style="margin-top: 12px;">
-        <label class="toggle-switch">
-          <input type="checkbox" id="autoplayToggle" checked />
-          <span class="toggle-slider"></span>
-        </label>
-        <label for="autoplayToggle" class="toggle-label">
-          Autoplay audio when generation finishes
-        </label>
+    </div>
+    <div>
+      <label for="speedInput">
+        <span>Speed</span>
+        <span id="speedValue" class="slider-pill">1.0x</span>
+      </label>
+      <div class="slider-track">
+        <input type="range" id="speedInput" min="0.5" max="2.0" step="0.1" value="1.0" />
       </div>
     </div>
 
-    <!-- Text Input Card -->
-    <div class="card">
-      <button id="extractArticleBtn" class="btn-secondary">
-        📰 Scan & Extract Article
-      </button>
-      <div class="shortcut-hint">or press <kbd>Alt+Shift+A</kbd> to read any page</div>
-      <div class="textarea-header">
-        <label for="textInput" style="margin-bottom: 0">Text to Read</label>
-        <button id="clearBtn" class="clear-btn">Clear</button>
-      </div>
-      <textarea
-        id="textInput"
-        placeholder="Highlight text on any page, click Scan Article, or type here..."
-       maxlength="10000"></textarea>
-      <div id="charCount" class="char-count"></div>
-      <div class="button-group">
-        <button id="playBtn" class="btn-primary">▶ Play Audio</button>
-        <button id="stopBtn" class="btn-danger" disabled>⏹ Stop</button>
-      </div>
-      <button id="downloadBtn" class="btn-success">
-        ⬇ Download Audio (.wav)
-      </button>
+    <div class="toggle-container" style="margin-top: 6px;">
+      <label class="toggle-switch">
+        <input type="checkbox" id="renderBeforePlayToggle" />
+        <span class="toggle-slider"></span>
+      </label>
+      <label for="renderBeforePlayToggle" class="toggle-label">
+        Pre-render full audio before playback (reduces stutter on slow GPUs)
+      </label>
     </div>
 
-    <!-- Status & Progress -->
-    <div class="status-card">
-      <div class="status-header" role="status" aria-live="polite">
-        <div id="statusDot" class="status-dot"></div>
-        <span id="statusText">Ready</span>
+    <div class="toggle-container" style="margin-top: 6px;">
+      <label class="toggle-switch">
+        <input type="checkbox" id="autoplayToggle" checked />
+        <span class="toggle-slider"></span>
+      </label>
+      <label for="autoplayToggle" class="toggle-label">
+        Autoplay audio when generation finishes
+      </label>
+    </div>
+  </div>
+
+  <!-- Text Input Card -->
+  <div class="card">
+    <button id="extractArticleBtn" class="btn-secondary">
+      📰 Scan & Extract Article
+    </button>
+    <div class="shortcut-hint">or press <kbd>Alt+Shift+A</kbd> to read any page</div>
+    <div class="textarea-header">
+      <label for="textInput" style="margin-bottom: 0">Text to Read</label>
+      <button id="clearBtn" class="clear-btn">Clear</button>
+    </div>
+    <textarea id="textInput" placeholder="Highlight text on any page, click Scan Article, or type here..."
+      maxlength="10000"></textarea>
+    <div id="charCount" class="char-count"></div>
+    <div class="button-group">
+      <button id="playBtn" class="btn-primary">▶ Play Audio</button>
+      <button id="stopBtn" class="btn-danger" disabled>⏹ Stop</button>
+    </div>
+    <button id="downloadBtn" class="btn-success">
+      ⬇ Download Audio (.wav)
+    </button>
+  </div>
+
+  <!-- Status & Progress -->
+  <div class="status-card">
+    <div class="status-header" role="status" aria-live="polite">
+      <div id="statusDot" class="status-dot"></div>
+      <span id="statusText">Ready</span>
+    </div>
+    <div id="gpuWarningBox" class="gpu-warning-box" style="display: none;">
+      <div class="gpu-warning-text" id="gpuWarningText">
+        WebGPU is unavailable. Enable <strong>"Use graphics acceleration when available"</strong>
       </div>
-      <div id="gpuWarningBox" class="gpu-warning-box" style="display: none;">
-        <div class="gpu-warning-text" id="gpuWarningText">
-          WebGPU is unavailable. Please verify <strong>"Use graphics acceleration when available"</strong> is enabled in Chrome Settings (<kbd>chrome://settings/system</kbd>) and relaunch Chrome.
-        </div>
-        <div class="gpu-warning-actions">
-          <button id="openGpuDiagnosticsBtn" class="gpu-link-btn" type="button">
-            🔍 Check chrome://gpu diagnostics ↗
-          </button>
-        </div>
-      </div>
-      <div id="progressContainer" class="progress-bar-container">
-        <div id="progressFill" class="progress-bar-fill"></div>
-      </div>
-      <div style="display: flex; justify-content: flex-end; margin-top: 8px; gap: 8px;">
-        <button id="clearAudioCacheBtn" class="clear-btn" title="Clears stored audio cache" aria-label="Clears stored audio cache">🗑️ Clear Audio Cache</button>
-        <button id="resetGpuBtn" class="clear-btn" title="Recreates GPU worker and clears model cache" aria-label="Recreates GPU worker and clears model cache">🔄 Reset Engine</button>
+      <div class="gpu-warning-actions">
+        <button id="openSystemSettingsBtn" class="gpu-link-btn primary-action" type="button">
+          ⚙️ Fix in chrome://settings/system ↗
+        </button>
+        <button id="openGpuDiagnosticsBtn" class="gpu-link-btn" type="button">
+          🔍 Check chrome://gpu ↗
+        </button>
       </div>
     </div>
+    <div id="progressContainer" class="progress-bar-container">
+      <div id="progressFill" class="progress-bar-fill"></div>
+    </div>
+    <div style="display: flex; justify-content: flex-end; margin-top: 8px; gap: 8px;">
+      <button id="clearAudioCacheBtn" class="clear-btn" title="Clears stored audio cache"
+        aria-label="Clears stored audio cache">🗑️ Clear Audio Cache</button>
+      <button id="resetGpuBtn" class="clear-btn" title="Recreates GPU worker and clears model cache"
+        aria-label="Recreates GPU worker and clears model cache">🔄 Reset Engine</button>
+    </div>
+  </div>
 
-    <!-- Attributions Section -->
-    <details class="attributions">
-      <summary>⚖️ Credits & Attributions</summary>
-      <div class="attr-content">
-        <div class="attr-item">
-          <strong>kitten-tts-webgpu</strong> npm package by
-          <a href="https://github.com/svenflow/kitten-tts-webgpu" target="_blank" rel="noopener noreferrer">Svenflow</a> (MIT)
-        </div>
-        <div class="attr-item">
-          <strong>Kitten TTS</strong> by
-          <a href="https://huggingface.co/KittenML" target="_blank" rel="noopener noreferrer">KittenML</a> — original models and architecture (Apache 2.0)
-        </div>
-        <div class="attr-item">
-          <strong>espeak-ng</strong> pronunciation dictionary and letter-to-sound rules (<a href="https://github.com/espeak-ng/espeak-ng" target="_blank" rel="noopener noreferrer">GPL-3.0</a>)
-        </div>
-        <div class="attr-item">
-          <strong>phonemizer</strong> by
-          <a href="https://github.com/xenova/transformers.js" target="_blank" rel="noopener noreferrer">Xenova</a> (Apache-2.0)
-        </div>
-        <div class="attr-item">
-          <strong>@mozilla/readability</strong> by
-          <a href="https://github.com/mozilla/readability" target="_blank" rel="noopener noreferrer">Mozilla</a> (Apache-2.0)
-        </div>
+  <!-- Attributions Section -->
+  <details class="attributions">
+    <summary>⚖️ Credits & Attributions</summary>
+    <div class="attr-content">
+      <div class="attr-item">
+        <strong>kitten-tts-webgpu</strong> npm package by
+        <a href="https://github.com/svenflow/kitten-tts-webgpu" target="_blank" rel="noopener noreferrer">Svenflow</a>
+        (MIT)
       </div>
-    </details>
+      <div class="attr-item">
+        <strong>Kitten TTS</strong> by
+        <a href="https://huggingface.co/KittenML" target="_blank" rel="noopener noreferrer">KittenML</a> — original
+        models and architecture (Apache 2.0)
+      </div>
+      <div class="attr-item">
+        <strong>espeak-ng</strong> pronunciation dictionary and letter-to-sound rules (<a
+          href="https://github.com/espeak-ng/espeak-ng" target="_blank" rel="noopener noreferrer">GPL-3.0</a>)
+      </div>
+      <div class="attr-item">
+        <strong>phonemizer</strong> by
+        <a href="https://github.com/xenova/transformers.js" target="_blank" rel="noopener noreferrer">Xenova</a>
+        (Apache-2.0)
+      </div>
+      <div class="attr-item">
+        <strong>@mozilla/readability</strong> by
+        <a href="https://github.com/mozilla/readability" target="_blank" rel="noopener noreferrer">Mozilla</a>
+        (Apache-2.0)
+      </div>
+    </div>
+  </details>
 
-    <!-- Debug Panel (shown when KITTEN_DEBUG is enabled) -->
-    <details id="debugPanel" class="debug-panel">
-      <summary>🐞 Debug</summary>
-      <div class="debug-body">
-        <div class="debug-toolbar">
-          <label class="debug-toggle" title="Enable verbose logging in DevTools console and here" style="margin-right: auto;">
-            <input type="checkbox" id="debugToggle" />
-            <span class="debug-toggle-label">Enable debug logging</span>
-          </label>
+  <!-- Debug Panel (shown when KITTEN_DEBUG is enabled) -->
+  <details id="debugPanel" class="debug-panel">
+    <summary>🐞 Debug</summary>
+    <div class="debug-body">
+      <div class="debug-toolbar">
+        <label class="debug-toggle" title="Enable verbose logging in DevTools console and here">
+          <input type="checkbox" id="debugToggle" />
+          <span class="debug-toggle-label">Enable debug logging</span>
+        </label>
+        <label class="debug-toggle" title="Enable text preprocessing (number normalization, acronym expansion, etc.)">
+          <input type="checkbox" id="preprocessToggle" checked />
+          <span class="debug-toggle-label">Text preprocessing</span>
+        </label>
+        <div class="debug-actions">
           <button id="debugClearBtn" class="clear-btn" aria-label="Clear debug log">Clear</button>
           <button id="debugCopyBtn" class="clear-btn" aria-label="Copy debug log to clipboard">Copy</button>
           <span id="debugEntryCount" class="debug-count">0 entries</span>
         </div>
-        <textarea id="debugLog" class="debug-log" readonly>-- no log entries yet --</textarea>
       </div>
-    </details>
+      <textarea id="debugLog" class="debug-log" readonly>-- no log entries yet --</textarea>
+    </div>
+  </details>
 
-    <script type="module" src="dist/sidepanel.js"></script>
-  </body>
+  <script type="module" src="dist/sidepanel.js"></script>
+</body>
+
 </html>

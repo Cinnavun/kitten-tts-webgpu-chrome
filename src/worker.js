@@ -205,6 +205,36 @@ function segmentSentences(textBlock) {
 }
 
 /**
+ * Splits a long sentence at punctuation boundaries only when NOT inside open parentheses/brackets.
+ * Prevents severed clauses like "Johnson & Johnson (J-N-J:" / "U-S) said Monday...".
+ */
+function splitOutsideParens(text, regex) {
+  const parts = [];
+  let lastIdx = 0;
+  let parenDepth = 0;
+  for (let i = 0; i < text.length; i++) {
+    const ch = text[i];
+    if (ch === "(" || ch === "[" || ch === "{") parenDepth++;
+    else if (ch === ")" || ch === "]" || ch === "}") parenDepth = Math.max(0, parenDepth - 1);
+
+    if (parenDepth === 0) {
+      const slice = text.slice(i);
+      const m = slice.match(regex);
+      if (m && m.index === 0) {
+        parts.push(text.slice(lastIdx, i + m[1].length));
+        i += m[0].length - 1;
+        lastIdx = i + 1;
+      }
+    }
+  }
+  if (lastIdx < text.length) {
+    const remaining = text.slice(lastIdx);
+    if (remaining.trim()) parts.push(remaining);
+  }
+  return parts.length > 0 ? parts : [text];
+}
+
+/**
  * Preprocess and split text into natural sentence-level chunks for TTS.
  * 
  * Design Principles:
@@ -216,7 +246,7 @@ function segmentSentences(textBlock) {
  * 4. Paragraph breaks are defined strictly by true double-newlines (\n\n+). Internal soft
  *    newlines (\n) are flattened into spaces to prevent premature sentence cutting.
  */
-function chunkText(text) {
+function chunkText(text, enablePreprocessing = true) {
   if (!text || typeof text !== "string") return [];
 
   const MAX_CHUNK_LENGTH = 380;     // Safe upper limit for Windows WebGPU 2s TDR watchdog
@@ -237,8 +267,10 @@ function chunkText(text) {
     // so Intl.Segmenter does not treat them as sentence breaks (UAX #29 Sep rule).
     const normalizedPara = rawPara.replace(/\r?\n+/g, " ");
 
-    // Step 1: Preprocess the entire paragraph FIRST
-    const processedPara = preprocessor.process(normalizedPara).trim();
+    // Step 1: Preprocess the entire paragraph FIRST (if enabled)
+    const processedPara = enablePreprocessing
+      ? preprocessor.process(normalizedPara).trim()
+      : normalizedPara.trim();
     if (!processedPara || !/[a-zA-Z0-9]/.test(processedPara)) continue;
 
     // Step 2: Segment the preprocessed paragraph into clean, whole sentences
@@ -271,11 +303,11 @@ function chunkText(text) {
       if (trimmedSentence.length > MAX_CHUNK_LENGTH) {
         if (currentChunk) pushChunk();
 
-        // Try major syntactic breaks first (semicolon, colon, em-dash)
-        let subParts = trimmedSentence.split(/(?<=[;:—–])\s+/);
+        // Try major syntactic breaks first (semicolon, colon, em-dash) outside parentheses
+        let subParts = splitOutsideParens(trimmedSentence, /^([;:—–])\s+/);
         if (subParts.length === 1 && subParts[0].length > MAX_CHUNK_LENGTH) {
-          // Fallback: split at clause boundaries (commas)
-          subParts = trimmedSentence.split(/(?<=[,])\s+/);
+          // Fallback: split at clause boundaries (commas) outside parentheses
+          subParts = splitOutsideParens(trimmedSentence, /^([,])\s+/);
         }
 
         for (const part of subParts) {
@@ -352,8 +384,8 @@ let isCancelled = false;
  * Synthesize a single text chunk to a WAV blob using the engine directly.
  * Bypasses the library's textToSpeech() convenience function (which hardcodes HuggingFace URLs).
  */
-async function synthesizeChunk(engine, text, voice, speed) {
-  let idsData = await robustTextToInputIds(text);
+async function synthesizeChunk(engine, text, voice, speed, enablePreprocessing = true) {
+  let idsData = await robustTextToInputIds(text, enablePreprocessing);
   let generateResult = await engine.generate(idsData.ids, voice, speed, text.length);
   const blob = float32ToWav(generateResult.waveform, 24000);
 
@@ -370,9 +402,9 @@ async function synthesizeChunk(engine, text, voice, speed) {
   return blob;
 }
 
-function synthesizeWithTimeout(engine, text, voice, speed, timeoutMs = 60000) {
+function synthesizeWithTimeout(engine, text, voice, speed, enablePreprocessing = true, timeoutMs = 60000) {
   return Promise.race([
-    synthesizeChunk(engine, text, voice, speed),
+    synthesizeChunk(engine, text, voice, speed, enablePreprocessing),
     new Promise((_, reject) =>
       setTimeout(() => reject(new Error("GPU generation timed out.")), timeoutMs)
     )
@@ -437,12 +469,13 @@ self.onmessage = async (e) => {
     if (typeof msg.debug === "boolean") {
       setDebugEnabled(msg.debug);
     }
-    const { text, voice, speed, model, generationId } = msg;
+    const { text, voice, speed, model, generationId, preprocess = true } = msg;
+    const enablePreprocessing = preprocess !== false;
 
-    dbg("PLAY_TEXT.received", { charCount: text.length, voice, speed, model, fullText: text });
+    dbg("PLAY_TEXT.received", { charCount: text.length, voice, speed, model, enablePreprocessing, fullText: text });
 
     try {
-      const chunks = chunkText(text);
+      const chunks = chunkText(text, enablePreprocessing);
       if (chunks.length === 0) {
         self.postMessage({ type: "TTS_ERROR", error: "No readable text found.", generationId });
         return;
@@ -484,14 +517,14 @@ self.onmessage = async (e) => {
           dbg("synthesize.chunk", {
             chunkIndex: i + 1,
             totalChunks: chunks.length,
-            charLength: chunk.text.length,
-            pauseAfterSeconds: pauseAfter,
+            charCount: chunk.text.length,
             paraEnd: chunk.paraEnd,
-            textToModel: chunk.text
+            pauseAfterSec: pauseAfter,
+            text: chunk.text
           });
 
           const blob = await synthesizeWithTimeout(
-            engine, chunk.text, voice || "Jasper", speed || 1.0
+            engine, chunk.text, voice || "Jasper", speed || 1.0, enablePreprocessing
           );
 
           if (isCancelled) break;

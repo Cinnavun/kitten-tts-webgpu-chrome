@@ -2,6 +2,71 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.3.8] - 2026-09-05
+
+### Comma-Formatted Number Range Normalization & Clause Boundary Protection
+- **Comma-Formatted Number Range Normalization**:
+  - Resolved an issue where formatted numbers in hyphenated or dashed ranges (e.g. `69,000-76,000`) had their internal digit groups (`000-76`) mistakenly matched as an isolated range by `RE_RANGE` because commas were matched as non-word boundaries (`(?<!\w)`), turning `000-76` into `zero to seventy six` and resulting in `69,zero to seventy six,000` pronounced as *"sixty-nine zero seventy-six zero"*.
+  - Redesigned `RE_RANGE` in `src/textpreprocessor.js` to match full comma-formatted integers, plain integers, and decimals (`(?:\d{1,3}(?:,\d{3})+(?:\.\d+)?|\d+(?:\.\d+)?)`), across hyphens, en-dashes (`–`), and em-dashes (`—`) with optional surrounding whitespace (`69,000-76,000`, `69,000 - 76,000`, `69,000–76,000`).
+  - Added `formatRangeNumber` helper in `src/textpreprocessor.js` to strip thousands commas, delegate decimals to `floatToWords`, 4-digit years (1800–2099) to `yearToWords`, and integers to `numberToWords`, expanding `69,000-76,000` cleanly into `sixty nine thousand to seventy six thousand`.
+- **Negative Sign Disambiguation in Numbers**:
+  - Updated `RE_NUMBER` from `(?<![a-zA-Z])-?` to `(?<!\w)-?` so trailing digits before a hyphen are never treated as negative signs for subsequent numbers.
+- **Robust Phonemizer Range Failsafe & Numeric Comma Protection**:
+  - Added a number range normalization failsafe in `robustTextToInputIds` (`src/robustPhonemizer.js`) to convert any unexpanded ranges into `X to Y` before number-to-words substitution.
+  - Stripped thousands separator commas (`(?<=\d),(?=\d{3}\b)`) in `src/robustPhonemizer.js` before clause punctuation segmentation, ensuring numeric commas are never treated as clause boundaries when preprocessing is disabled.
+- **Paren-Aware Sentence Chunking & Stock Ticker Protection**:
+  - Identified in user debug logs that giant sentences (> 380 chars) were decomposing across colons inside parentheses (e.g. `Johnson & Johnson (J-N-J:` in Chunk 2 and `U-S) said Monday...` in Chunk 3).
+  - Implemented `splitOutsideParens` in `src/worker.js` ensuring syntactic decomposition at colons, semicolons, dashes, and commas only occurs when parenthesis depth is zero, keeping parenthetical phrases whole.
+  - Protected uppercase stock ticker and exchange symbols (`JNJ:US`, `BTC:USD`, `NASDAQ:AAPL`) in `fixMissingSentenceSpacing` (`src/textpreprocessor.js`) from having extraneous spaces inserted after colons.
+- **Currency Range Expansion (`$100K-250K`, `$10-$20`)**:
+  - Added support in `expandCurrency` (`src/textpreprocessor.js`) to parse and expand financial ranges like `$100K-250K` into `"one hundred thousand to two hundred fifty thousand dollars"`.
+- **Rebuilt Distribution Bundles**:
+  - Rebuilt `dist/worker.js`, `dist/sidepanel.js`, `dist/offscreen.js`, and `dist/background.js`.
+
+## [1.3.7] - 2026-09-05
+
+### Text Preprocessing Debug Toggle & Initialism Preservation
+- **Text Preprocessing Debug Toggle**:
+  - Added a `#preprocessToggle` checkbox to the Debug toolbar at the bottom of the UI in `sidepanel.html`.
+  - Persisted user preference in `chrome.storage.local` under `KITTEN_PREPROCESS` (defaulting to enabled).
+  - Wired toggle state through `src/sidepanel.js` $\rightarrow$ `src/offscreen.js` $\rightarrow$ `src/worker.js` $\rightarrow$ `src/robustPhonemizer.js`.
+  - When unchecked, bypasses paragraph preprocessing in `TextPreprocessor.process()` as well as number/hyphen normalization failsafes in `robustTextToInputIds()`, allowing users to test raw, unmanipulated text directly against eSpeak-ng.
+- **Cache Isolation for Preprocessing**:
+  - Updated `generateCacheKey` in `src/db.js` to include the `preprocess` boolean flag, preventing cached audio generated with preprocessing from colliding with non-preprocessed test runs.
+- **Initialism Hyphen Preservation**:
+  - Refined the intra-word hyphen replacement regex in `src/robustPhonemizer.js` to only target multi-letter compound words (`(?<=[a-zA-Z]{2,})-(?=[a-zA-Z])|(?<=[a-zA-Z])-(?=[a-zA-Z]{2,})`), preventing single-letter initialisms (such as `A-I`, `A-P-I`, `U-S-A`) from having their hyphens stripped into spaces and slurring into indefinite articles.
+- **Rebuilt Distribution Bundles**:
+  - Recompiled `dist/worker.js`, `dist/sidepanel.js`, `dist/offscreen.js`, and `dist/background.js`.
+
+## [1.3.6] - 2026-09-05
+
+### Chrome Web Store Build & Packaging Pipeline
+- **Dedicated Staging Directory (`dist-store/`)**:
+  - Implemented `npm run build:store` (and PowerShell companion `.\scripts\build-store.ps1`) to compile bundles and stage only required runtime files into a clean `dist-store/` folder.
+  - Excluded development clutter, raw source files (`src/`, `assets/`, `images/`, `scripts/`), `node_modules/`, git files, and configuration files from the distribution package.
+  - Left `dist-store/` in place after build so developers can load it unpacked directly in `chrome://extensions` for verification before packaging.
+- **Zero-Dependency Store Packaging**:
+  - Rewrote `scripts/build-store.js` using Node.js built-ins (`fs`, `path`, `child_process`) removing the missing `archiver` dependency.
+  - Implemented automated pre-flight checks validating `manifest.json`, MV3 compliance, and presence of all referenced files (`dist/background.js`, `sidepanel.html`, `sidepanel.css`, `offscreen.html`, `content.js`, icons, and local nano model weights).
+  - Added `npm run zip:store` (`node scripts/build-store.js --zip`) to package `dist-store/` into `kitten-tts-webgpu-chrome-store.zip`.
+  - On Windows, enforced forward slashes (`/`) in ZIP archive entries via .NET `System.IO.Compression.ZipFileExtensions::CreateEntryFromFile`, preventing extraction errors and upload rejections on the Chrome Developer Dashboard.
+- **Project Configuration Updates**:
+  - Added `build:store`, `zip:store`, and `package:store` scripts to `package.json`.
+  - Added `dist-store/` to `.gitignore`.
+  - Rewrote `scripts/README.md` with complete documentation of the 2-stage build-test-zip workflow.
+
+### UI Layout & System Settings Navigation
+- **Top Row Header & Brand Wrapping Fix**:
+  - Constrained `.theme-select` width (`width: auto !important; max-width: 78px; flex-shrink: 0`) preventing the dropdown from expanding to 100% width and crushing the brand container.
+  - Added `white-space: nowrap` and `flex-shrink: 0` to `.brand-name`, preventing "Kitten TTS" from wrapping vertically across multiple lines.
+- **Vertical Spacing & Above-The-Fold Optimization**:
+  - Compacted body padding (`10px 12px`), card padding (`9px 10px`), card margins (`8px`), toggle container spacing (`6px`), and textarea default height (`85px`).
+  - Kept status card, progress bar, and WebGPU diagnostic box visible above the fold on standard side panel heights without requiring vertical scrolling.
+- **Direct System Settings (`chrome://settings/system`) Navigation**:
+  - Added a one-click action button (`#openSystemSettingsBtn`) and inline link (`#openSystemSettingsLink`) to open `chrome://settings/system` via `chrome.tabs.create`.
+  - Enables users to immediately jump to the "Use graphics acceleration when available" toggle to resolve the primary cause of WebGPU initialization failures.
+  - Rebuilt all distribution bundles (`dist/sidepanel.js`).
+
 ## [1.3.5] - 2026-09-05
 
 ### WebGPU Fallback & Hardware Resilience
