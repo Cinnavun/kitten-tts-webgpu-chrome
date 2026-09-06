@@ -2,6 +2,24 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.3.12] - 2026-09-06
+
+### Local Pre-Bundling of All 3 Models & Air-Gapped Security Hardening
+- **Bundled All 3 KittenTTS Models Out of the Box**:
+  - Pre-bundled `kitten_tts_micro_v0_8.onnx` (~41 MB) and `kitten_tts_mini_v0_8.onnx` (~78 MB) alongside existing `kitten_tts_nano_v0_8.onnx` (~24 MB) and `voices.npz` (~3.3 MB) inside `models/`.
+  - Updated `LOCAL_MODELS` in `src/worker.js` to map `nano`, `micro`, and `mini` to their local bundled ONNX files and shared voice style embeddings.
+  - Eliminated `REMOTE_MODELS` and the runtime HuggingFace CDN download logic in `getEngine()`. All model loads now resolve directly via `chrome.runtime.getURL()` with zero network requests.
+- **Supply Chain Security & Privacy Guarantees**:
+  - Complete elimination of external network traffic during speech synthesis across all model configurations, protecting against MITM attacks, DNS tampering, CDN outages, or rate-limiting.
+  - No user IP addresses, request timestamps, or browser telemetry are transmitted to HuggingFace or any external third-party service.
+  - Full air-gapped offline speech synthesis available immediately upon extension installation without initial download delays or setup hurdles.
+- **Store Packaging & Validation Updates**:
+  - Updated `CRITICAL_INTERNAL_CHECKS` in `scripts/build-store.js` and `$criticalFiles` in `scripts/build-store.ps1` to enforce that all 3 model files are present and verified before staging.
+  - Corrected the store size check threshold to modern Chrome Web Store limits (2 GB / 2,048 MB), verifying that the ~140 MB zipped package operates comfortably within store limits (~7% of capacity).
+  - Added `scripts/download-models.mjs` verification utility with streaming SHA-256 validation.
+- **Comprehensive Documentation Updates**:
+  - Synchronized `SECURITY.md`, `PRIVACY_POLICY.md`, `PRIVACY_POLICY_SIMPLE.md`, `README.md`, `ATTRIBUTION.md`, and `scripts/README.md` to reflect that all models are pre-bundled from the jump and zero network requests are made.
+
 ## [1.3.11] - 2026-09-06
 
 ### Caption UI Control Stripping & Scoped DOM Filtering

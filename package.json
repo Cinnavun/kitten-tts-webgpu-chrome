@@ -33,6 +33,7 @@
     "build:store": "npm run build && node scripts/build-store.js",
     "zip:store": "node scripts/build-store.js --zip",
     "package:store": "npm run build:store && npm run zip:store",
+    "download:models": "node scripts/download-models.mjs",
     "check": "tsc --noEmit",
     "check:watch": "tsc --noEmit --watch"
   },

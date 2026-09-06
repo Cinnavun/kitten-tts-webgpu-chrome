@@ -78,7 +78,7 @@ Or to build, stage, and zip in a single command:
 npm run package:store
 ```
 
-This creates `kitten-tts-webgpu-chrome-store.zip` at the project root with optimal compression, verifying that the package is well within the Chrome Web Store 130 MB limit.
+This creates `kitten-tts-webgpu-chrome-store.zip` at the project root with optimal compression, verifying that the package is well within the Chrome Web Store 2 GB limit (typically ~140 MB with all 3 models bundled).
 
 ---
 
@@ -89,7 +89,7 @@ This creates `kitten-tts-webgpu-chrome-store.zip` at the project root with optim
 | **Configuration** | `manifest.json`, `LICENSE` | `package.json`, `package-lock.json`, `tsconfig.json`, `.gitattributes`, `.gitignore` |
 | **UI & Styling** | `sidepanel.html`, `sidepanel.css`, `offscreen.html` | Source HTML mockups |
 | **Scripts** | `content.js`, `dist/background.js`, `dist/sidepanel.js`, `dist/offscreen.js`, `dist/extractor.js`, `dist/worker.js` | `src/` (TypeScript/ESM source code), `node_modules/`, `scripts/`, `background.js` (source) |
-| **Models & Rules** | `models/kitten_tts_nano_v0_8.onnx`, `models/voices.npz`, `dist/espeak-en-dict.tsv`, `dist/en_rules` | `assets/` raw source files |
+| **Models & Rules** | `models/kitten_tts_nano_v0_8.onnx`, `models/kitten_tts_micro_v0_8.onnx`, `models/kitten_tts_mini_v0_8.onnx`, `models/voices.npz`, `dist/espeak-en-dict.tsv`, `dist/en_rules` | `assets/` raw source files |
 | **Assets** | `icons/icon*.png` | `images/` (promo tiles and screenshots uploaded directly in developer console), markdown docs (`README.md`, `CHANGELOG.md`, `CHROMEWEBSTORE.md`) |
 
 ---

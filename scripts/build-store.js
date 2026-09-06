@@ -65,6 +65,8 @@ const CRITICAL_INTERNAL_CHECKS = [
   'icons/icon48.png',
   'icons/icon128.png',
   'models/kitten_tts_nano_v0_8.onnx',
+  'models/kitten_tts_micro_v0_8.onnx',
+  'models/kitten_tts_mini_v0_8.onnx',
   'models/voices.npz'
 ];
 
@@ -271,10 +273,10 @@ async function main() {
       const zipSizeMb = (zipStat.size / (1024 * 1024)).toFixed(2);
 
       console.log(`✅ ZIP package created: ${zipFileName} (${zipSizeMb} MB)`);
-      if (zipStat.size > 130 * 1024 * 1024) {
-        console.warn(`⚠️  WARNING: ZIP size (${zipSizeMb} MB) exceeds Chrome Web Store 130 MB limit!`);
+      if (zipStat.size > 2048 * 1024 * 1024) {
+        console.warn(`⚠️  WARNING: ZIP size (${zipSizeMb} MB) exceeds Chrome Web Store 2 GB limit!`);
       } else {
-        console.log(`✓ Size is within Chrome Web Store limit (130 MB).`);
+        console.log(`✓ Size is within Chrome Web Store limit (${zipSizeMb} MB / 2048 MB).`);
       }
     } catch (err) {
       console.error(`❌ Failed to create ZIP package:`, err.message);

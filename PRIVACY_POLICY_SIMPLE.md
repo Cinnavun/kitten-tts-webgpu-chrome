@@ -34,18 +34,17 @@ Your text, audio, and preferences never leave your device.
 | `scripting` | Run extraction | Inject text parser (local) |
 | `offscreen` | Run TTS | Generate speech using WebGPU |
 | `tabs` | Track sessions | Know which tab you're reading |
-| `notifications` | Popup messages | Tell you when models download |
+| `notifications` | Popup messages | Inform you when text extraction errors occur |
 
 **None transmit your data.**
 
 ---
 
-## Model Downloads
+## Model Bundling (Zero Downloads)
 
-- When: First time using Micro or Mini model
-- What: Neural network files (~40-78 MB)
-- From: HuggingFace CDN
-- After: Cached in your browser, no more downloads needed
+- **Bundled:** All 3 models (Nano, Micro, Mini) are pre-bundled with the extension
+- **Downloads:** None. The extension makes 0 requests to HuggingFace or any CDN
+- **Offline:** 100% functional offline immediately upon installation
 
 ---
 

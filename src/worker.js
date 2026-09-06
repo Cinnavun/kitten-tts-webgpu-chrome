@@ -65,21 +65,9 @@ if (navigator.gpu) {
 
 // Models shipped locally with the extension (loaded from models/ directory)
 const LOCAL_MODELS = {
-  nano: { onnx: "kitten_tts_nano_v0_8.onnx", voices: "voices.npz" }
-};
-
-// Models that must be downloaded from HuggingFace on first use (browser-cached after)
-const REMOTE_MODELS = {
-  mini: {
-    url: "https://huggingface.co/KittenML/kitten-tts-mini-0.8/resolve/main/kitten_tts_mini_v0_8.onnx",
-    voicesUrl: "https://huggingface.co/KittenML/kitten-tts-mini-0.8/resolve/main/voices.npz",
-    size: "78 MB"
-  },
-  micro: {
-    url: "https://huggingface.co/KittenML/kitten-tts-micro-0.8/resolve/main/kitten_tts_micro_v0_8.onnx",
-    voicesUrl: "https://huggingface.co/KittenML/kitten-tts-micro-0.8/resolve/main/voices.npz",
-    size: "41 MB"
-  }
+  nano: { onnx: "kitten_tts_nano_v0_8.onnx", voices: "voices.npz" },
+  micro: { onnx: "kitten_tts_micro_v0_8.onnx", voices: "voices.npz" },
+  mini: { onnx: "kitten_tts_mini_v0_8.onnx", voices: "voices.npz" }
 };
 
 /** Cached engine instances keyed by model name — survives across generations */
@@ -92,8 +80,8 @@ let extensionBaseUrl = "";
 
 /**
  * Get or create a KittenTTSEngine for the requested model.
- * Local models (nano) are loaded from the extension's models/ directory.
- * Remote models (micro, mini) are fetched from HuggingFace and browser-cached.
+ * All models (nano, micro, mini) are shipped locally in the extension's models/ directory
+ * to ensure 100% offline security, privacy, and zero external network requests.
  */
 async function getEngine(model = "nano", onProgress) {
   const cached = engineCache.get(model);
@@ -129,11 +117,6 @@ async function getEngine(model = "nano", onProgress) {
       onnxUrl = `${extensionBaseUrl}models/${local.onnx}`;
       voicesUrl = `${extensionBaseUrl}models/${local.voices}`;
       onProgress?.(`Loading local ${model} model…`);
-    } else if (REMOTE_MODELS[model]) {
-      const remote = REMOTE_MODELS[model];
-      onnxUrl = remote.url;
-      voicesUrl = remote.voicesUrl;
-      onProgress?.(`Downloading ${model} model (${remote.size})…`);
     } else {
       throw new Error(`Unknown model: ${model}`);
     }

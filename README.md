@@ -18,24 +18,19 @@ A fast, private, 100% on-device Text-to-Speech Chrome extension powered by **Web
 
 ## 📦 Models
 
-Kitten TTS WebGPU includes **three model sizes**, optimized for different performance/quality tradeoffs:
+Kitten TTS WebGPU includes **three model sizes**, optimized for different performance/quality tradeoffs. For maximum security, privacy, and true air-gapped reliability, **all three models are pre-bundled locally**:
 
 | Model | Size | Speed | Quality | Bundled? | First Use |
 |-------|------|-------|---------|----------|-----------|
 | **Nano** | ~24MB | ⚡ Fast | Good | ✅ Yes | Instant (pre-bundled) |
-| **Micro** | ~41MB | 🔋 Normal | Better | ❌ No | Downloads on first use (~2-5 min) |
-| **Mini** | ~78MB | 🐢 Slower | Best | ❌ No | Downloads on first use (~4-8 min) |
+| **Micro** | ~41MB | 🔋 Normal | Better | ✅ Yes | Instant (pre-bundled) |
+| **Mini** | ~78MB | 🐢 Slower | Best | ✅ Yes | Instant (pre-bundled) |
 
-**How it works:**
-1. **Nano model** is included with the extension (no extra downloads needed)
-2. **Micro & Mini models** download automatically on first use from HuggingFace CDN
-3. Models are cached in your browser—subsequent uses are instant
-4. **Offline:** After models are cached, TTS works fully offline with no internet required
-
-**Your Privacy:**
-- Model downloads are HTTPS-only with no tracking
-- Files are stored in your browser cache, not any remote server
-- You control when/if micro/mini models download
+**Security & Privacy by Design:**
+1. **Pre-Bundled From the Jump:** All models are shipped inside the extension. Zero downloads from HuggingFace or any external CDN at runtime.
+2. **Instant Playback:** No first-use download delay, stalls, or CDN rate limits.
+3. **100% Offline & Air-Gapped:** Works immediately anywhere without an internet connection.
+4. **Zero Network Requests:** Audio synthesis never contacts remote servers or leaks metadata.
 
 ---
 

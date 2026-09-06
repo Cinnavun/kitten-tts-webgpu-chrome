@@ -19,3 +19,5 @@ package-lock.json
 package-lock.json
 Kitten-tts-webgpu-Chrome.code-workspace
 scripts/test-preprocessor.mjs
+models/kitten_tts_micro_v0_8.onnx
+models/kitten_tts_mini_v0_8.onnx

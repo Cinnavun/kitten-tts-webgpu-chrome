@@ -40,6 +40,8 @@ $criticalFiles = @(
   'icons\icon48.png',
   'icons\icon128.png',
   'models\kitten_tts_nano_v0_8.onnx',
+  'models\kitten_tts_micro_v0_8.onnx',
+  'models\kitten_tts_mini_v0_8.onnx',
   'models\voices.npz'
 )
 
@@ -139,10 +141,10 @@ if ($Zip) {
 
   Write-Host "✅ ZIP package created: $OutputPath ($zipSizeFormatted)" -ForegroundColor Green
 
-  if ($zipSize -gt 130) {
-    Write-Host "⚠️  WARNING: ZIP size exceeds Chrome Web Store 130 MB limit!" -ForegroundColor Yellow
+  if ($zipSize -gt 2048) {
+    Write-Host "⚠️  WARNING: ZIP size exceeds Chrome Web Store 2 GB limit!" -ForegroundColor Yellow
   } else {
-    Write-Host "✓ Size is within Chrome Web Store limit (130 MB)." -ForegroundColor Green
+    Write-Host "✓ Size is within Chrome Web Store limit ($zipSizeFormatted / 2,048 MB)." -ForegroundColor Green
   }
 }
 
