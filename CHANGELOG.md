@@ -2,6 +2,30 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.3.11] - 2026-09-06
+
+### Caption UI Control Stripping & Scoped DOM Filtering
+- **Centralized Caption UI Cleaner (`stripCaptionUI`)**:
+  - Implemented and exported `stripCaptionUI(doc)` in `src/articleCleaner.js` with shared selectors `CAPTION_UI_SELECTORS` and command set `CAPTION_TOGGLE_COMMANDS`.
+  - Scoped all text-matched removals strictly to `el.closest("figure, figcaption") !== null`, ensuring body prose containing words like `"hide caption option"` or `"toggle caption setting"` is 100% preserved.
+  - Protected inline sentence formatting: inline words like `<p>... detailed <em>caption</em> ...</p>` with sibling text nodes are never removed.
+  - Strips interactive button chrome and explicit toggle classes: `.toggle-caption`, `.hide-caption`, `.caption-toggle`, `.caption-control`, `.caption-btn`, `figure button`, `figcaption button`, and `[role="button"]`.
+- **Pre-Readability & Fallback Integration**:
+  - Wired `stripCaptionUI(doc)` into `src/offscreen.js` immediately before Mozilla Readability parses the document.
+  - Because Readability operates on the mutated live DOM tree and the fallback path reads directly from `doc.body?.textContent`, both extraction pipelines inherit clean caption text with zero toggle or button artifacts.
+  - Added defensive call in `cleanArticleText()` on parsed Readability HTML.
+- **Drop-Cap Regex Repair**:
+  - Refined drop-cap regex in `src/articleCleaner.js` from `^([A-Z])` to `^([B-HJ-Z])`, preventing the English indefinite article `"A"` (e.g., `"A panoramic view"`) and pronoun `"I"` from being erroneously concatenated to subsequent lowercase words.
+- **Line Filter Safety**:
+  - Added standalone line filtering (`toggleCaptionLineRegex`) and credit trailing token stripping in `applyLineFilters` in `src/articleCleaner.js`.
+- **Automated Test Suite & Regression Fixtures**:
+  - Created `scripts/test-article-cleaner.mjs` asserting authentic caption text and photo credits survive, NPR-style toggle buttons (`<b>toggle caption</b>`, `<b>hide caption</b>`) are removed, and asserting two key regression fixtures:
+    - Prose containing literal words (`"The interface includes a hide caption option."`) survives completely unchanged.
+    - Inline formatted words (`"The photographer provided a detailed <em>caption</em> for the historical image."`) survive intact without deleting words.
+  - Wired into `npm test` (`node scripts/test-preprocessor.mjs && node scripts/test-article-cleaner.mjs`).
+- **Rebuilt Distribution Bundles**:
+  - Recompiled `dist/offscreen.js`, `dist/sidepanel.js`, `dist/worker.js`, and `dist/background.js`.
+
 ## [1.3.10] - 2026-09-05
 
 ### NLP Date Parsing & Natural Spoken Pronunciation

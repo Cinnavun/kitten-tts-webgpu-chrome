@@ -24,7 +24,7 @@
   },
   "main": "background.js",
   "scripts": {
-    "test": "node scripts/test-preprocessor.mjs",
+    "test": "node scripts/test-preprocessor.mjs && node scripts/test-article-cleaner.mjs",
     "build:esm": "esbuild src/worker.js --bundle --format=esm --sourcemap=inline --outdir=dist",
     "build:iife": "esbuild src/sidepanel.js src/offscreen.js src/extractor.js --bundle --format=iife --sourcemap=inline --outdir=dist",
     "build:assets": "node -e \"fs.copyFileSync('assets/espeak-en-dict.tsv', 'dist/espeak-en-dict.tsv'); fs.copyFileSync('assets/en_rules', 'dist/en_rules')\"",
@@ -44,6 +44,7 @@
     "@types/chrome": "^0.0.320",
     "@webgpu/types": "^0.1.72",
     "esbuild": "^0.28.1",
+    "linkedom": "^0.18.13",
     "typescript": "^5.8.3"
   },
   "allowScripts": {

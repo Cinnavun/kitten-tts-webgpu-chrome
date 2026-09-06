@@ -1,8 +1,7 @@
-// src/offscreen.js
 import { Readability } from "@mozilla/readability";
 import { dbg, isDebugEnabled, setDebugEnabled } from "./debugLogger.js";
 import { saveAudio, getAudio } from "./db.js";
-import { cleanArticleText, cleanPlainText } from "./articleCleaner.js";
+import { cleanArticleText, cleanPlainText, stripCaptionUI } from "./articleCleaner.js";
 
 /**
  * Debug helper for the offscreen context.
@@ -384,6 +383,9 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
         "[class*='newsletter' i], [class*='subscribe' i], [class*='signup' i], " +
         "[class*='promo' i], [class*='recirc' i]"
       ).forEach((el) => el.remove());
+
+      // Strip caption UI controls, buttons, and toggles before Readability
+      stripCaptionUI(doc);
 
       const reader = new Readability(doc, { maxElemsToParse: 10000 });
       const parsed = reader.parse();
