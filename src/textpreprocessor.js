@@ -128,12 +128,12 @@ const RE_MENTION = /@\w+/g;
 const RE_HTML = /<[^>]+>/g;
 const RE_PUNCT = /[^\w\s.,?!;:\-\u2014\u2013\u2026]/g;
 const RE_SPACES = /\s+/g;
-const RE_NUMBER = /(?<![a-zA-Z])-?\b\d{1,3}(?:,\d{3})+(?:\.\d+)?\b|(?<![a-zA-Z])-?\b\d+(?:\.\d+)?\b/g;
+const RE_NUMBER = /(?<!\w)-?\b\d{1,3}(?:,\d{3})+(?:\.\d+)?\b|(?<!\w)-?\b\d+(?:\.\d+)?\b/g;
 const RE_ORDINAL = /\b(\d+)(st|nd|rd|th)\b/gi;
 const RE_PERCENT = /(-?\d[\d,]*(?:\.\d+)?)\s*%/g;
 const RE_CURRENCY = /([$€£¥₹₩₿])\s*(\d[\d,]*(?:\.\d+)?)\s*(thousand|thou|million|mil|billion|bil|trillion|k|m|b|t)?(?![a-zA-Z\d])/gi;
 const RE_TIME = /\b(\d{1,2}):(\d{2})(?::(\d{2}))?\s*(am|pm)?\b/gi;
-const RE_RANGE = /(?<!\d-)(?<!\w)(\d+)-(\d+)(?!\w)(?!-\d)/g;
+const RE_RANGE = /(?<!\d\s*[-–—])(?<![\w.,])(\d{1,3}(?:,\d{3})+(?:\.\d+)?|\d+(?:\.\d+)?)\s*[-–—]\s*(\d{1,3}(?:,\d{3})+(?:\.\d+)?|\d+(?:\.\d+)?)(?![\w.,])(?![-–—]\s*\d)/g;
 const RE_MODEL_VER = /\b([a-zA-Z][a-zA-Z0-9]*)-(\d[\d.]*)\b(?![a-zA-Z\d.])/g;
 const RE_UNIT = /(\d+(?:\.\d+)?)\s*(km|kg|mg|ml|gb|mb|kb|tb|hz|khz|mhz|ghz|mph|kph|°[cCfF]|[cCfF]°|ms|ns|µs)\b/gi;
 const RE_SCALE = /(?<![a-zA-Z\-])(?:\b(\d{2,}|\d+\.\d+)\s*([KMBTkmbt])\b|\b([1-9])\s*([KMBTkmbt])\b(?=\s+(?:views|followers|subscribers|users|people|downloads|tokens|params|parameters|bytes|records|devices|hits|sales|copies|streams|visits|impressions|votes|shares|members|students|workers|employees|residents|customers|patients|citizens|fans|dollars|euros|pounds|yen)\b))/g;
@@ -142,6 +142,7 @@ const RE_FRACTION = /(?<!\/\d+)(?<!\d\/)\b(\d+)\s*\/\s*(\d+)\b(?!\/\d+)/g;
 const RE_DECADE = /\b(\d{1,3})0s\b/gi;
 const RE_LEAD_DEC = /(?<!\d)\.([\d])/g;
 const RE_NO_NUM = /\bno\.\s*(?=\d)/gi;
+const RE_DATE = /(?<![\w/-])(?:(\d{4})[-/.](\d{1,2})[-/.](\d{1,2})|(\d{1,2})[-/.](\d{1,2})[-/.](\d{4}))(?![\w/-])(?!\.\d)/g;
 
 // Common abbreviations that use periods — must not get spaces inserted after them
 export const ABBREVIATIONS = new Set([
@@ -175,7 +176,8 @@ function ordinalSuffix(n) {
 
   let lastOrd = ORDINAL_EXCEPTIONS[last];
   if (!lastOrd) {
-    if (last.endsWith("t")) lastOrd = last + "h";
+    if (last.endsWith("y")) lastOrd = last.slice(0, -1) + "ieth";
+    else if (last.endsWith("t")) lastOrd = last + "h";
     else if (last.endsWith("e")) lastOrd = last.slice(0, -1) + "th";
     else lastOrd = last + "th";
   }
@@ -200,6 +202,25 @@ function expandCurrency(text) {
     B: "billion", BILLION: "billion", BIL: "billion",
     T: "trillion", TRILLION: "trillion"
   };
+
+  // 1. Expand currency ranges first (e.g. $100K-250K, $100K-$250K, $10-$20, $5.5-6.5 billion)
+  const RE_CURRENCY_RANGE = /([$€£¥₹₩₿])\s*(\d[\d,]*(?:\.\d+)?)\s*(k|m|b|t|thousand|million|billion|trillion)?(?![a-zA-Z\d])\s*[-–—]\s*[$€£¥₹₩₿]?\s*(\d[\d,]*(?:\.\d+)?)\s*(k|m|b|t|thousand|million|billion|trillion)?(?![a-zA-Z\d])/gi;
+
+  text = text.replace(RE_CURRENCY_RANGE, (m, sym, n1Raw, s1Raw, n2Raw, s2Raw) => {
+    const unit = CURRENCY_SYMBOLS[sym] || "";
+    const s2 = s2Raw ? (scaleMap[s2Raw.toUpperCase()] || s2Raw.toLowerCase()) : "";
+    const s1 = s1Raw ? (scaleMap[s1Raw.toUpperCase()] || s1Raw.toLowerCase()) : s2;
+
+    const num1Str = n1Raw.replace(/,/g, "");
+    const num2Str = n2Raw.replace(/,/g, "");
+    const w1 = num1Str.includes(".") ? floatToWords(num1Str) : numberToWords(parseInt(num1Str, 10));
+    const w2 = num2Str.includes(".") ? floatToWords(num2Str) : numberToWords(parseInt(num2Str, 10));
+
+    const part1 = s1 ? `${w1} ${s1}` : w1;
+    const part2 = s2 ? `${w2} ${s2}` : w2;
+    return `${part1} to ${part2} ${unit}${unit ? "s" : ""}`;
+  });
+
   return text.replace(RE_CURRENCY, (m, symbol, rawNum, scaleSuffix) => {
     let raw = rawNum.replace(/,/g, "");
     let unit = CURRENCY_SYMBOLS[symbol] || "";
@@ -241,8 +262,45 @@ function expandTime(text) {
   });
 }
 
+const MONTHS = ["January","February","March","April","May","June","July","August",
+  "September","October","November","December"];
+const DAYS_IN_MONTH = [31,29,31,30,31,30,31,31,30,31,30,31];
+
+function validDay(m, d, y) {
+  if (m < 1 || m > 12 || d < 1) return false;
+  const leap = (y % 4 === 0 && y % 100 !== 0) || y % 400 === 0;
+  const max = (m === 2 && !leap) ? 28 : DAYS_IN_MONTH[m - 1];
+  return d <= max;
+}
+
+export function expandDates(text) {
+  return text.replace(RE_DATE, (m, isoY, isoM, isoD, usM, usD, usY) => {
+    let y, mo, d;
+    if (isoY) { y = +isoY; mo = +isoM; d = +isoD; }
+    else {
+      y = +usY; mo = +usM; d = +usD;
+      if (mo > 12 && d >= 1 && d <= 12) [mo, d] = [d, mo]; // DD-MM-YYYY rescue
+    }
+    if (y < 1000 || y > 2199 || !validDay(mo, d, y)) return m;
+    return `${MONTHS[mo - 1]} ${ordinalSuffix(d)}, ${yearToWords(y)}`;
+  });
+}
+
+function formatRangeNumber(str) {
+  const raw = str.replace(/,/g, "");
+  if (raw.includes(".")) {
+    return floatToWords(raw);
+  }
+  const val = parseInt(raw, 10);
+  if (isNaN(val)) return str;
+  if (!str.includes(",") && raw.length === 4 && val >= 1800 && val <= 2099) {
+    return yearToWords(val);
+  }
+  return numberToWords(val);
+}
+
 function expandRanges(text) {
-  return text.replace(RE_RANGE, (m, g1, g2) => `${numberToWords(parseInt(g1, 10))} to ${numberToWords(parseInt(g2, 10))}`);
+  return text.replace(RE_RANGE, (m, g1, g2) => `${formatRangeNumber(g1)} to ${formatRangeNumber(g2)}`);
 }
 
 function expandModelNames(text) {
@@ -500,6 +558,10 @@ export function fixMissingSentenceSpacing(text) {
     /([a-zA-Z]{2,})([.!?;:])([A-Z])/g,
     (match, before, punct, after) => {
       if (punct === "." && ABBREVIATIONS.has(before.toLowerCase())) {
+        return `${before}${punct}${after}`;
+      }
+      if (punct === ":" && /^[A-Z]+$/.test(before)) {
+        // Exclude stock ticker / market symbols like JNJ:US, NASDAQ:AAPL, BTC:USD
         return `${before}${punct}${after}`;
       }
       return `${before}${punct} ${after}`;
@@ -843,6 +905,7 @@ export class TextPreprocessor {
       expand_percentages: true,
       expand_currency: true,
       expand_time: true,
+      expand_dates: true,
       expand_ranges: true,
       expand_units: true,
       expand_scale_suffixes: true,
@@ -899,6 +962,7 @@ export class TextPreprocessor {
     if (cfg.expand_percentages) text = expandPercentages(text);
     if (cfg.expand_scientific_notation) text = expandScientificNotation(text);
     if (cfg.expand_time) text = expandTime(text);
+    if (cfg.expand_dates) text = expandDates(text);
     if (cfg.expand_ordinals) text = expandOrdinals(text);
     if (cfg.expand_units) text = expandUnits(text);
     if (cfg.expand_scale_suffixes) text = expandScaleSuffixes(text);

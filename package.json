@@ -24,11 +24,15 @@
   },
   "main": "background.js",
   "scripts": {
+    "test": "node scripts/test-preprocessor.mjs",
     "build:esm": "esbuild src/worker.js --bundle --format=esm --sourcemap=inline --outdir=dist",
     "build:iife": "esbuild src/sidepanel.js src/offscreen.js src/extractor.js --bundle --format=iife --sourcemap=inline --outdir=dist",
     "build:assets": "node -e \"fs.copyFileSync('assets/espeak-en-dict.tsv', 'dist/espeak-en-dict.tsv'); fs.copyFileSync('assets/en_rules', 'dist/en_rules')\"",
     "build:sw": "esbuild background.js --bundle --format=esm --sourcemap=inline --outdir=dist",
     "build": "npm run build:esm && npm run build:iife && npm run build:assets && npm run build:sw",
+    "build:store": "npm run build && node scripts/build-store.js",
+    "zip:store": "node scripts/build-store.js --zip",
+    "package:store": "npm run build:store && npm run zip:store",
     "check": "tsc --noEmit",
     "check:watch": "tsc --noEmit --watch"
   },

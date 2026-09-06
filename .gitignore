@@ -16,3 +16,5 @@ kitten-tts-webgpu-chrome-store.zip
 gitignore
 package-lock.json
 package-lock.json
+Kitten-tts-webgpu-Chrome.code-workspace
+scripts/test-preprocessor.mjs

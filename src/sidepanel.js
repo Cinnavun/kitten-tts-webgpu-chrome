@@ -46,10 +46,19 @@ const gpuWarningBox = document.getElementById("gpuWarningBox");
 const gpuWarningText = document.getElementById("gpuWarningText");
 /** @type {HTMLButtonElement | null} */
 const openGpuDiagnosticsBtn = /** @type {HTMLButtonElement | null} */ (document.getElementById("openGpuDiagnosticsBtn"));
+/** @type {HTMLButtonElement | null} */
+const openSystemSettingsBtn = /** @type {HTMLButtonElement | null} */ (document.getElementById("openSystemSettingsBtn"));
+
+function openSystemSettings(e) {
+  e?.preventDefault();
+  chrome.tabs.create({ url: "chrome://settings/system" });
+}
 
 openGpuDiagnosticsBtn?.addEventListener("click", () => {
   chrome.tabs.create({ url: "chrome://gpu" });
 });
+openSystemSettingsBtn?.addEventListener("click", openSystemSettings);
+document.getElementById("openSystemSettingsLink")?.addEventListener("click", openSystemSettings);
 
 function showGpuWarning(customHtml) {
   if (statusDot) statusDot.className = "status-dot error";
@@ -57,6 +66,9 @@ function showGpuWarning(customHtml) {
   if (gpuWarningBox) gpuWarningBox.style.display = "block";
   if (gpuWarningText && customHtml) {
     gpuWarningText.innerHTML = customHtml;
+    // Re-bind any inline link created inside dynamic HTML
+    const inlineLink = gpuWarningBox?.querySelector("#openSystemSettingsLink");
+    inlineLink?.addEventListener("click", openSystemSettings);
   }
 }
 
@@ -90,7 +102,7 @@ async function pollGpuAvailability() {
 
     if (!adapter) {
       showGpuWarning(
-        'WebGPU is unavailable. Hardware graphics acceleration appears to be disabled. Please enable <strong>"Use graphics acceleration when available"</strong> in Chrome Settings (<kbd>chrome://settings/system</kbd>) and relaunch Chrome.'
+        'WebGPU is unavailable. Hardware graphics acceleration appears to be disabled. Enable <strong>"Use graphics acceleration when available"</strong> in <a href="#" id="openSystemSettingsLink" class="gpu-inline-link">chrome://settings/system ↗</a> and relaunch Chrome.'
       );
       return false;
     }
@@ -110,6 +122,8 @@ async function pollGpuAvailability() {
 const debugPanel = document.querySelector("#debugPanel");
 /** @type {HTMLInputElement | null} */
 const debugToggle = document.querySelector("#debugToggle");
+/** @type {HTMLInputElement | null} */
+const preprocessToggle = document.querySelector("#preprocessToggle");
 /** @type {HTMLTextAreaElement | null} */
 const debugLog = /** @type {HTMLTextAreaElement | null} */ (document.getElementById("debugLog"));
 /** @type {HTMLElement | null} */
@@ -307,6 +321,7 @@ async function startPlayback(textToPlay) {
   const model = modelSelect?.value || "nano";
   const renderBeforePlay = renderBeforePlayToggle?.checked || false;
   const autoplay = autoplayToggle?.checked ?? true;
+  const enablePreprocessing = preprocessToggle?.checked ?? true;
 
   if (!text) {
     if (statusText)
@@ -316,7 +331,7 @@ async function startPlayback(textToPlay) {
 
   await chrome.runtime.sendMessage({ type: "ENSURE_OFFSCREEN" });
   
-  const cacheKey = await generateCacheKey(text, voice, speed, model);
+  const cacheKey = await generateCacheKey(text, voice, speed, model, enablePreprocessing);
   const cachedBlob = await getAudio(cacheKey);
 
   if (!cachedBlob) {
@@ -344,7 +359,8 @@ async function startPlayback(textToPlay) {
       cacheKey,
       renderBeforePlay,
       autoplay,
-      debug: debugToggle?.checked || false
+      debug: debugToggle?.checked || false,
+      preprocess: enablePreprocessing
     });
   }
 
@@ -512,7 +528,7 @@ function resetControls(statusMsg) {
         resetControls(msg.status || "Error occurred");
         if (msg.status?.includes("WebGPU") || msg.status?.includes("chrome://gpu") || msg.status?.includes("graphics acceleration")) {
           showGpuWarning(
-            'WebGPU is unavailable. Please verify <strong>"Use graphics acceleration when available"</strong> is enabled in Chrome Settings (<kbd>chrome://settings/system</kbd>) and relaunch Chrome.'
+            'WebGPU is unavailable. Please verify <strong>"Use graphics acceleration when available"</strong> is enabled in <a href="#" id="openSystemSettingsLink" class="gpu-inline-link">chrome://settings/system ↗</a> and relaunch Chrome.'
           );
         }
       } else if (msg.state === "playing") {
@@ -585,25 +601,35 @@ function renderDebugLog() {
   debugLog.scrollTop = debugLog.scrollHeight;
 }
 
-// Read initial debug flag state
-chrome.storage.local.get("KITTEN_DEBUG", (result) => {
+// Read initial debug flag and preprocessing state
+chrome.storage.local.get(["KITTEN_DEBUG", "KITTEN_PREPROCESS"], (result) => {
   if (debugToggle) debugToggle.checked = result?.KITTEN_DEBUG === true;
+  if (preprocessToggle) preprocessToggle.checked = result?.KITTEN_PREPROCESS !== false;
 });
 
-// Keep toggle in sync if changed elsewhere
+// Keep toggles in sync if changed elsewhere
 chrome.storage.onChanged.addListener((changes, area) => {
-  if (area === "local" && "KITTEN_DEBUG" in changes && debugToggle) {
-    debugToggle.checked = changes.KITTEN_DEBUG.newValue === true;
+  if (area === "local") {
+    if ("KITTEN_DEBUG" in changes && debugToggle) {
+      debugToggle.checked = changes.KITTEN_DEBUG.newValue === true;
+    }
+    if ("KITTEN_PREPROCESS" in changes && preprocessToggle) {
+      preprocessToggle.checked = changes.KITTEN_PREPROCESS.newValue !== false;
+    }
   }
 });
 
-// Toggle handler — persist to storage (picked up by all contexts via onChanged)
+// Toggle handlers — persist to storage (picked up by all contexts via onChanged)
 debugToggle?.addEventListener("change", () => {
   chrome.storage.local.set({ KITTEN_DEBUG: debugToggle.checked });
   chrome.runtime.sendMessage({ target: "offscreen", type: "SET_DEBUG", enabled: debugToggle.checked }).catch(() => {});
   if (debugToggle.checked && debugEntries.length === 0) {
     if (debugLog) debugLog.value = "-- debug enabled: trigger a Play to see events --";
   }
+});
+
+preprocessToggle?.addEventListener("change", () => {
+  chrome.storage.local.set({ KITTEN_PREPROCESS: preprocessToggle.checked });
 });
 
 // Clear button

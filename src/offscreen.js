@@ -473,7 +473,8 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       speed: msg.speed,
       model: msg.model,
       cacheKey: msg.cacheKey,
-      renderBeforePlay: msg.renderBeforePlay
+      renderBeforePlay: msg.renderBeforePlay,
+      preprocess: msg.preprocess !== false
     };
 
     // ── New Synthesis ───────────────────────────────────────────
@@ -508,7 +509,8 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
         model: msg.model,
         generationId: thisGenId,
         extensionBaseUrl: chrome.runtime.getURL(""),
-        debug: isDebugEnabled()
+        debug: isDebugEnabled(),
+        preprocess: msg.preprocess !== false
       });
 
       sendResponse({ success: true });
