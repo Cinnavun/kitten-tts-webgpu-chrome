@@ -38,8 +38,8 @@ console.log("Running Article Caption UI Cleaner test suite...\n");
     "Should preserve the authentic caption description"
   );
   assert.ok(
-    cleaned.includes("Julia Demaree Nikhinson/AP"),
-    "Should preserve the photographer and agency credit"
+    !cleaned.includes("Julia Demaree Nikhinson/AP"),
+    "Should strip credit chrome element span.credit"
   );
   assert.ok(
     !cleaned.toLowerCase().includes("hide caption"),
@@ -49,7 +49,7 @@ console.log("Running Article Caption UI Cleaner test suite...\n");
     !cleaned.toLowerCase().includes("toggle caption"),
     "Should completely remove 'toggle caption'"
   );
-  console.log("✓ User's NPR caption HTML: authentic caption & credit preserved, all toggle controls stripped");
+  console.log("✓ User's NPR caption HTML: authentic caption preserved, credit chrome & toggle controls stripped");
 }
 
 // ─── Test 2: Regression Fixture 1 — Literal prose containing toggle phrases ───
@@ -171,6 +171,46 @@ console.log("Running Article Caption UI Cleaner test suite...\n");
     "Prose containing 'hide caption option' preserved in plain text cleaner"
   );
   console.log("✓ Fallback plain text cleaner: handles trailing tokens and preserves prose");
+}
+
+// ─── Test 7: RNS Markup & Suffix Dedupe ──────────────────────────────────────
+{
+  const html = `
+    <article>
+      <figure>
+        <figcaption>
+          <p>A group of students gather in the plaza. Ulaa Kuziez/Religion News Service</p>
+        </figcaption>
+        <span class="credit">Ulaa Kuziez/Religion News Service</span>
+      </figure>
+      <p>The students voiced their concerns peacefully.</p>
+    </article>
+  `;
+
+  const cleaned = cleanArticleText(html);
+
+  assert.ok(
+    cleaned.includes("A group of students gather in the plaza. Ulaa Kuziez/Religion News Service"),
+    "Authentic caption text inside figcaption is preserved"
+  );
+  assert.ok(
+    cleaned.includes("The students voiced their concerns peacefully."),
+    "Article prose is preserved"
+  );
+
+  // Suffix dedupe in applyLineFilters
+  const lines = [
+    "A group of students gather in the plaza. Ulaa Kuziez/Religion News Service",
+    "Ulaa Kuziez/Religion News Service",
+    "The students voiced their concerns peacefully."
+  ];
+  const deduped = cleanPlainText(lines.join("\n"));
+  assert.strictEqual(
+    deduped,
+    "A group of students gather in the plaza. Ulaa Kuziez/Religion News Service\n\nThe students voiced their concerns peacefully.",
+    "Trailing suffix duplicate credit line must be dropped"
+  );
+  console.log("✓ RNS Markup & Suffix Dedupe: redundant image credits stripped cleanly");
 }
 
 console.log("\nAll Article Caption UI Cleaner tests passed successfully!");

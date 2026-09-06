@@ -25,3 +25,4 @@ dist/sidepanel.js
 scripts/build-store.js
 scripts/build-store.ps1
 scripts/download-models.mjs
+scripts/test-article-cleaner.mjs
