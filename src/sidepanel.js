@@ -173,7 +173,7 @@ themeSelect?.addEventListener("change", (e) => {
 // 2. Load Saved Preferences (voice, model, speed, renderBeforePlay, autoplay)
 chrome.storage.local.get(
   { preferredVoice: "Jasper", preferredModel: "nano", preferredSpeed: "1.0", renderBeforePlay: false, autoplay: true },
-  (items) => {
+  async (items) => {
     if (voiceSelect) voiceSelect.value = items.preferredVoice;
     if (modelSelect) modelSelect.value = items.preferredModel;
     if (speedInput) {
@@ -188,6 +188,17 @@ chrome.storage.local.get(
       autoplayToggle.disabled = !items.renderBeforePlay;
     }
     checkCacheStatus(); // Initial check
+
+    // Trigger pre-warm with the confirmed preferredModel
+    const isGpuReady = await pollGpuAvailability();
+    await chrome.runtime.sendMessage({ type: "ENSURE_OFFSCREEN" });
+    if (isGpuReady) {
+      chrome.runtime.sendMessage({
+        target: "offscreen",
+        type: "PREWARM_MODEL",
+        model: items.preferredModel || "nano",
+      });
+    }
   },
 );
 
@@ -197,9 +208,18 @@ voiceSelect?.addEventListener("change", () => {
   checkCacheStatus();
 });
 
-modelSelect?.addEventListener("change", () => {
-  chrome.storage.local.set({ preferredModel: modelSelect.value });
+modelSelect?.addEventListener("change", async () => {
+  const chosenModel = modelSelect.value;
+  chrome.storage.local.set({ preferredModel: chosenModel });
   checkCacheStatus();
+  const isGpuReady = await pollGpuAvailability();
+  if (isGpuReady) {
+    chrome.runtime.sendMessage({
+      target: "offscreen",
+      type: "PREWARM_MODEL",
+      model: chosenModel,
+    });
+  }
 });
 
 const saveSpeed = debounce((value) => {
@@ -300,18 +320,7 @@ clearBtn?.addEventListener("click", () => {
   }
 });
 
-// 5. Initial GPU Poll & Silent Pre-Warm on Panel Load
-(async () => {
-  const isGpuReady = await pollGpuAvailability();
-  await chrome.runtime.sendMessage({ type: "ENSURE_OFFSCREEN" });
-  if (isGpuReady) {
-    chrome.runtime.sendMessage({
-      target: "offscreen",
-      type: "PREWARM_MODEL",
-      model: modelSelect?.value || "nano",
-    });
-  }
-})();
+// 5. Model pre-warming is coordinated above on preference load & dropdown change
 
 // Helper to start playback
 async function startPlayback(textToPlay) {

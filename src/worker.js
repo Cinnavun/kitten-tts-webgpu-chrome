@@ -66,8 +66,8 @@ if (navigator.gpu) {
 // Models shipped locally with the extension (loaded from models/ directory)
 const LOCAL_MODELS = {
   nano: { onnx: "kitten_tts_nano_v0_8.onnx", voices: "voices.npz" },
-  micro: { onnx: "kitten_tts_micro_v0_8.onnx", voices: "voices.npz" },
-  mini: { onnx: "kitten_tts_mini_v0_8.onnx", voices: "voices.npz" }
+  micro: { onnx: "kitten_tts_micro_v0_8.onnx", voices: "voices_micro.npz" },
+  mini: { onnx: "kitten_tts_mini_v0_8.onnx", voices: "voices_mini.npz" }
 };
 
 /** Cached engine instances keyed by model name — survives across generations */
@@ -434,10 +434,11 @@ self.onmessage = async (e) => {
       await getEngine(msg.model || "nano", (stage) => {
         self.postMessage({ type: "TTS_STATUS", status: stage, state: "busy" });
       });
-      self.postMessage({ type: "PREWARM_DONE", success: true });
+      self.postMessage({ type: "TTS_STATUS", status: "Ready", state: "idle" });
+      self.postMessage({ type: "PREWARM_DONE", success: true, model: msg.model || "nano" });
     } catch (err) {
       console.warn("[KittenTTS Worker] Pre-warm failed:", err.message);
-      self.postMessage({ type: "PREWARM_DONE", success: false, error: err.message });
+      self.postMessage({ type: "PREWARM_DONE", success: false, error: err.message, model: msg.model || "nano" });
       // Notify UI immediately via TTS_STATUS so side panel displays the diagnostic error
       self.postMessage({ type: "TTS_STATUS", status: err.message, state: "error" });
     }

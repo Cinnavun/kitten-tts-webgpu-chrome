@@ -5,20 +5,23 @@ All notable changes to this project will be documented in this file.
 ## [1.3.12] - 2026-09-06
 
 ### Local Pre-Bundling of All 3 Models & Air-Gapped Security Hardening
-- **Bundled All 3 KittenTTS Models Out of the Box**:
-  - Pre-bundled `kitten_tts_micro_v0_8.onnx` (~41 MB) and `kitten_tts_mini_v0_8.onnx` (~78 MB) alongside existing `kitten_tts_nano_v0_8.onnx` (~24 MB) and `voices.npz` (~3.3 MB) inside `models/`.
-  - Updated `LOCAL_MODELS` in `src/worker.js` to map `nano`, `micro`, and `mini` to their local bundled ONNX files and shared voice style embeddings.
+- **Bundled All 3 KittenTTS Models & Dedicated Voice Embeddings Out of the Box**:
+  - Pre-bundled `kitten_tts_micro_v0_8.onnx` (~41 MB), `kitten_tts_mini_v0_8.onnx` (~78 MB), `kitten_tts_nano_v0_8.onnx` (~24 MB) inside `models/`.
+  - Discovered that each model size requires its own trained voice latent embeddings to prevent distorted/static speech. Bundled model-specific voice files: `models/voices.npz` (nano, 8aa7cee2...), `models/voices_micro.npz` (micro, 112710c1...), and `models/voices_mini.npz` (mini, 40ad2638...), completely eliminating distorted/muffled output.
+  - Updated `LOCAL_MODELS` in `src/worker.js` to map each model to its matching ONNX weights and voice NPZ.
   - Eliminated `REMOTE_MODELS` and the runtime HuggingFace CDN download logic in `getEngine()`. All model loads now resolve directly via `chrome.runtime.getURL()` with zero network requests.
-- **Supply Chain Security & Privacy Guarantees**:
-  - Complete elimination of external network traffic during speech synthesis across all model configurations, protecting against MITM attacks, DNS tampering, CDN outages, or rate-limiting.
-  - No user IP addresses, request timestamps, or browser telemetry are transmitted to HuggingFace or any external third-party service.
-  - Full air-gapped offline speech synthesis available immediately upon extension installation without initial download delays or setup hurdles.
+- **Silenced Non-Float Graph Constant Initializer Warnings**:
+  - Silenced benign ONNX initializers of `dtype: 6` (INT32 constants) and `dtype: 9` (BOOL constants) alongside `case 7:` (INT64) in `kitten-tts-webgpu`, preventing Chrome from registering false-positive warnings as extension errors in `chrome://extensions`.
+- **Pre-Warm Status Lifecycle & UI Transition Repair**:
+  - Fixed pre-warm state lock: `worker.js` now posts `{ type: "TTS_STATUS", status: "Ready", state: "idle" }` upon pre-warm completion, allowing `sidepanel.js` to transition cleanly from `"Loading local ... model…"` to `"Ready"`.
+  - Fixed race condition on side panel open: model pre-warming now triggers with the user's stored `preferredModel` rather than defaulting to `"nano"` before storage loads.
+  - Added dynamic model pre-warming on `modelSelect` change so switching quality in the UI immediately pre-warms the target model in the background.
 - **Store Packaging & Validation Updates**:
-  - Updated `CRITICAL_INTERNAL_CHECKS` in `scripts/build-store.js` and `$criticalFiles` in `scripts/build-store.ps1` to enforce that all 3 model files are present and verified before staging.
-  - Corrected the store size check threshold to modern Chrome Web Store limits (2 GB / 2,048 MB), verifying that the ~140 MB zipped package operates comfortably within store limits (~7% of capacity).
-  - Added `scripts/download-models.mjs` verification utility with streaming SHA-256 validation.
+  - Updated `CRITICAL_INTERNAL_CHECKS` in `scripts/build-store.js` and `$criticalFiles` in `scripts/build-store.ps1` to enforce that all 3 models and all 3 voice files are staged and verified.
+  - Corrected store size check threshold to modern Chrome Web Store limits (2 GB / 2,048 MB), verifying the package at ~119.78 MB zipped (~5.8% of store capacity).
+  - Enhanced `scripts/download-models.mjs` utility with SHA-256 validation for both model weights and voice files.
 - **Comprehensive Documentation Updates**:
-  - Synchronized `SECURITY.md`, `PRIVACY_POLICY.md`, `PRIVACY_POLICY_SIMPLE.md`, `README.md`, `ATTRIBUTION.md`, and `scripts/README.md` to reflect that all models are pre-bundled from the jump and zero network requests are made.
+  - Synchronized `SECURITY.md`, `PRIVACY_POLICY.md`, `PRIVACY_POLICY_SIMPLE.md`, `README.md`, `ATTRIBUTION.md`, and `scripts/README.md` to reflect that all models and voices are pre-bundled from the jump and zero network requests are made.
 
 ## [1.3.11] - 2026-09-06
 
