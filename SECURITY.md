@@ -57,14 +57,15 @@ Suggested Fix: (optional)
 This extension is inherently secure because:
 
 - ✅ **No remote processing:** All TTS happens locally on your device
-- ✅ **No server communication:** No text, audio, or metadata is transmitted
-- ✅ **No data collection:** Extension stores data locally only
+- ✅ **Zero runtime model downloads:** All three models (Nano, Micro, Mini) and voice embeddings are pre-bundled directly into the extension package from the start for maximum supply-chain security and complete offline independence
+- ✅ **No server communication:** No text, audio, metadata, or model requests are transmitted to external servers
+- ✅ **No data collection:** Extension stores preferences and cached audio locally only
 - ✅ **Open source:** Code is auditable by anyone
 - ✅ **No obfuscation:** Source is readable and transparent
 
 ### What You Should Know
 
-- ⚠️ **Model downloads:** Micro/mini models download from HuggingFace CDN on first use. Verify file integrity if security is critical.
+- 🔒 **Fully self-contained / air-gapped:** No external CDN requests are made to HuggingFace or any other remote server at any point during usage.
 - ⚠️ **WebGPU sandbox:** Relies on browser WebGPU sandbox. Browser vulnerabilities could theoretically be exploited.
 - ⚠️ **Extension permissions:** Extension requires several permissions. Review in `manifest.json` or Chrome settings.
 
@@ -80,7 +81,7 @@ This extension is inherently secure because:
 
 Critical security updates are released as:
 
-1. **GitHub Release:** https://github.com/your-username/kitten-tts-webgpu-chrome/releases
+1. **GitHub Release:** https://github.com/cinnavun/kitten-tts-webgpu-chrome/releases
    - Download source code to verify
    - Includes SHA-256 checksums
 

@@ -2,16 +2,10 @@
 import { generateCacheKey, getAudio, clearAudioCache } from './src/db.js';
 const OFFSCREEN_DOCUMENT_PATH = "offscreen.html";
 
-/** URLs that cannot be injected into or extracted from. */
-const BLOCKED_URL_PREFIXES = [
-  "chrome://", "chrome-extension://", "edge://",
-  "about:", "chromewebstore.google.com"
-];
-
-function isBlockedUrl(url) {
-  if (!url) return true;
-  return BLOCKED_URL_PREFIXES.some((prefix) => url.startsWith(prefix) || url.includes(prefix));
-}
+// Access control is delegated directly to the browser runtime: API operations
+// (chrome.scripting.executeScript, chrome.tabs.sendMessage) are executed and handled
+// via try/catch, respecting user flags (e.g. --extensions-on-chrome-urls, file:// access,
+// and custom reader schemes like Edge reader mode) without client-side gatekeeping.
 
 async function hasOffscreenDocument() {
   if ("getContexts" in chrome.runtime) {
@@ -136,22 +130,22 @@ function updateActionBadge(state, text = "", tooltip = "") {
   if (state === "loading") {
     chrome.action.setBadgeText({ text: text || "..." });
     chrome.action.setBadgeBackgroundColor({ color: "#6366f1" }); // Indigo
-    chrome.action.setTitle({ title: tooltip || `Kitten TTS: Synthesizing (${text})` });
+    chrome.action.setTitle({ title: tooltip || `Mews Reader: Synthesizing (${text})` });
   } else if (state === "playing") {
     chrome.action.setBadgeText({ text: "▶" });
     chrome.action.setBadgeBackgroundColor({ color: "#10b981" }); // Green
-    chrome.action.setTitle({ title: tooltip || "Kitten TTS: Playing audio" });
+    chrome.action.setTitle({ title: tooltip || "Mews Reader: Playing audio" });
   } else if (state === "error") {
     chrome.action.setBadgeText({ text: "!" });
     chrome.action.setBadgeBackgroundColor({ color: "#ef4444" }); // Red
-    chrome.action.setTitle({ title: `Kitten TTS Error: ${tooltip}` });
+    chrome.action.setTitle({ title: `Mews Reader Error: ${tooltip}` });
     setTimeout(() => {
       chrome.action.setBadgeText({ text: "" });
-      chrome.action.setTitle({ title: "Kitten TTS WebGPU Chrome" });
+      chrome.action.setTitle({ title: "Mews Reader: Private Full-Page TTS" });
     }, 4500);
   } else if (state === "idle") {
     chrome.action.setBadgeText({ text: "" });
-    chrome.action.setTitle({ title: "Kitten TTS WebGPU Chrome" });
+    chrome.action.setTitle({ title: "Mews Reader: Private Full-Page TTS" });
   }
 }
 
@@ -176,18 +170,6 @@ async function sendToastToActiveTab(payload) {
   try {
     const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
     if (!tab?.id) return;
-    
-    if (isBlockedUrl(tab.url)) {
-      if (payload.text && (payload.text.toLowerCase().includes("error") || payload.text.includes("Cannot extract"))) {
-        chrome.notifications.create({
-          type: "basic",
-          iconUrl: "icons/icon48.png",
-          title: "Kitten TTS Error",
-          message: payload.text
-        });
-      }
-      return;
-    }
 
     try {
       await chrome.tabs.sendMessage(tab.id, {
@@ -196,11 +178,33 @@ async function sendToastToActiveTab(payload) {
       });
     } catch (err) {
       if (err.message && err.message.includes("Receiving end does not exist")) {
-        await ensureContentScriptsInjected(tab.id);
-        await chrome.tabs.sendMessage(tab.id, {
-          type: "SHOW_TOAST",
-          payload
-        });
+        try {
+          await ensureContentScriptsInjected(tab.id);
+          await chrome.tabs.sendMessage(tab.id, {
+            type: "SHOW_TOAST",
+            payload
+          });
+        } catch (_) {
+          // If script injection is denied by browser/policy, fallback to notification
+          if (payload.text && (payload.text.toLowerCase().includes("error") || payload.text.includes("Cannot extract"))) {
+            chrome.notifications.create({
+              type: "basic",
+              iconUrl: "icons/icon48.png",
+              title: "Mews Reader",
+              message: payload.text
+            });
+          }
+        }
+      } else {
+        // Any other message dispatch error (e.g. unscriptable tab context)
+        if (payload.text && (payload.text.toLowerCase().includes("error") || payload.text.includes("Cannot extract"))) {
+          chrome.notifications.create({
+            type: "basic",
+            iconUrl: "icons/icon48.png",
+            title: "Mews Reader",
+            message: payload.text
+          });
+        }
       }
     }
   } catch (_) { }
@@ -219,11 +223,12 @@ async function openSidePanel(tab) {
 
 async function runArticleExtractor(tab) {
   if (!tab?.id) throw new Error("No active tab found.");
-  if (isBlockedUrl(tab.url)) {
-    throw new Error("Cannot extract from browser internal pages.");
-  }
 
-  await ensureContentScriptsInjected(tab.id);
+  try {
+    await ensureContentScriptsInjected(tab.id);
+  } catch (err) {
+    throw new Error(err?.message || "Cannot access or script this page.");
+  }
 
   const results = await chrome.scripting.executeScript({
     target: { tabId: tab.id },
@@ -276,7 +281,7 @@ chrome.runtime.onInstalled.addListener(() => {
     });
     chrome.contextMenus.create({
       id: "page-open-panel-only",
-      title: "🐾 Open Kitten TTS Side Panel",
+      title: "🐾 Open Mews Reader Side Panel",
       contexts: ["page"]
     });
   });
@@ -325,7 +330,7 @@ chrome.contextMenus.onClicked.addListener(async (info, tab) => {
 chrome.commands.onCommand.addListener(async (command, tab) => {
   if (command === "read_article_command") {
     let targetTab = tab;
-    if (!targetTab?.id || !targetTab?.url) {
+    if (!targetTab?.id) {
       const [activeTab] = await chrome.tabs.query({ active: true, currentWindow: true });
       targetTab = activeTab;
     }
@@ -410,14 +415,26 @@ chrome.runtime.onConnect.addListener((port) => {
 chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
 
   if (msg.type === "ENSURE_OFFSCREEN") {
-    setupOffscreenDocument().then(() => sendResponse({ ready: true }));
+    (async () => {
+      try {
+        await setupOffscreenDocument();
+        sendResponse({ ready: true });
+      } catch (err) {
+        sendResponse({ ready: false, error: err.message });
+      }
+    })();
     return true;
   }
 
   if (msg.type === "CLEAR_AUDIO_CACHE") {
-    clearAudioCache()
-      .then(() => sendResponse({ success: true, message: "Audio cache cleared." }))
-      .catch(err => sendResponse({ success: false, error: err.message }));
+    (async () => {
+      try {
+        await clearAudioCache();
+        sendResponse({ success: true, message: "Audio cache cleared." });
+      } catch (err) {
+        sendResponse({ success: false, error: err.message });
+      }
+    })();
     return true;
   }
 

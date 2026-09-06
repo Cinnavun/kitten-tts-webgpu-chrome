@@ -27,7 +27,7 @@ Kitten TTS WebGPU builds upon the excellent work of many open-source projects. T
 - **License:** Apache-2.0
 - **What:** Pre-trained neural voice synthesis models (nano, micro, mini)
 - **Purpose:** ONNX model weights for text-to-speech
-- **Note:** Models are pre-bundled (nano) and downloaded from HuggingFace (micro/mini)
+- **Note:** All three models (nano, micro, mini) and voice style embeddings are pre-bundled locally within the extension
 
 ### @mozilla/readability
 - **Author:** Mozilla Corporation
@@ -48,7 +48,7 @@ Kitten TTS WebGPU builds upon the excellent work of many open-source projects. T
 ### phonemizer
 - **Author:** Xenova
 - **License:** Apache-2.0
-- **Repository:** https://huggingface.co/Xenova/multilingual-e5-small
+- **Repository:** https://github.com/xenova/transformers.js
 - **Purpose:** Converts text to phonemes for TTS synthesis
 - **Use in Extension:** Bundled via kitten-tts-webgpu
 

@@ -40,12 +40,90 @@ const resetGpuBtn = document.querySelector("#resetGpuBtn");
 const clearAudioCacheBtn = document.querySelector("#clearAudioCacheBtn");
 /** @type {HTMLElement | null} */
 const charCount = document.getElementById("charCount");
+/** @type {HTMLElement | null} */
+const gpuWarningBox = document.getElementById("gpuWarningBox");
+/** @type {HTMLElement | null} */
+const gpuWarningText = document.getElementById("gpuWarningText");
+/** @type {HTMLButtonElement | null} */
+const openGpuDiagnosticsBtn = /** @type {HTMLButtonElement | null} */ (document.getElementById("openGpuDiagnosticsBtn"));
+/** @type {HTMLButtonElement | null} */
+const openSystemSettingsBtn = /** @type {HTMLButtonElement | null} */ (document.getElementById("openSystemSettingsBtn"));
+
+function openSystemSettings(e) {
+  e?.preventDefault();
+  chrome.tabs.create({ url: "chrome://settings/system" });
+}
+
+openGpuDiagnosticsBtn?.addEventListener("click", () => {
+  chrome.tabs.create({ url: "chrome://gpu" });
+});
+openSystemSettingsBtn?.addEventListener("click", openSystemSettings);
+document.getElementById("openSystemSettingsLink")?.addEventListener("click", openSystemSettings);
+
+function showGpuWarning(customHtml) {
+  if (statusDot) statusDot.className = "status-dot error";
+  if (statusText) statusText.textContent = "WebGPU unavailable";
+  if (gpuWarningBox) gpuWarningBox.style.display = "block";
+  if (gpuWarningText && customHtml) {
+    gpuWarningText.innerHTML = customHtml;
+    // Re-bind any inline link created inside dynamic HTML
+    const inlineLink = gpuWarningBox?.querySelector("#openSystemSettingsLink");
+    inlineLink?.addEventListener("click", openSystemSettings);
+  }
+}
+
+function hideGpuWarning() {
+  if (gpuWarningBox) gpuWarningBox.style.display = "none";
+  if (statusDot && statusDot.className.includes("error")) {
+    statusDot.className = "status-dot";
+  }
+}
+
+/**
+ * Initial poll for WebGPU availability on sidepanel launch.
+ * Detects whether hardware graphics acceleration is enabled or disabled.
+ */
+async function pollGpuAvailability() {
+  if (!navigator.gpu) {
+    showGpuWarning(
+      'WebGPU is not supported by your browser. Please update Chrome to v113+ or check <kbd>chrome://gpu</kbd> for details.'
+    );
+    return false;
+  }
+
+  try {
+    let adapter = await navigator.gpu.requestAdapter();
+    if (!adapter) {
+      // Hardware GPU not returned -> attempt fallback adapter check
+      try {
+        adapter = await navigator.gpu.requestAdapter({ forceFallbackAdapter: true });
+      } catch (_) {}
+    }
+
+    if (!adapter) {
+      showGpuWarning(
+        'WebGPU is unavailable. Hardware graphics acceleration appears to be disabled. Enable <strong>"Use graphics acceleration when available"</strong> in <a href="#" id="openSystemSettingsLink" class="gpu-inline-link">chrome://settings/system ↗</a> and relaunch Chrome.'
+      );
+      return false;
+    }
+
+    hideGpuWarning();
+    return true;
+  } catch (err) {
+    showGpuWarning(
+      `WebGPU adapter initialization failed: ${err.message}. Please check <kbd>chrome://gpu</kbd> for details.`
+    );
+    return false;
+  }
+}
 
 // Debug panel DOM refs (populated in section 10)
 /** @type {HTMLDetailsElement | null} */
 const debugPanel = document.querySelector("#debugPanel");
 /** @type {HTMLInputElement | null} */
 const debugToggle = document.querySelector("#debugToggle");
+/** @type {HTMLInputElement | null} */
+const preprocessToggle = document.querySelector("#preprocessToggle");
 /** @type {HTMLTextAreaElement | null} */
 const debugLog = /** @type {HTMLTextAreaElement | null} */ (document.getElementById("debugLog"));
 /** @type {HTMLElement | null} */
@@ -95,7 +173,7 @@ themeSelect?.addEventListener("change", (e) => {
 // 2. Load Saved Preferences (voice, model, speed, renderBeforePlay, autoplay)
 chrome.storage.local.get(
   { preferredVoice: "Jasper", preferredModel: "nano", preferredSpeed: "1.0", renderBeforePlay: false, autoplay: true },
-  (items) => {
+  async (items) => {
     if (voiceSelect) voiceSelect.value = items.preferredVoice;
     if (modelSelect) modelSelect.value = items.preferredModel;
     if (speedInput) {
@@ -110,6 +188,17 @@ chrome.storage.local.get(
       autoplayToggle.disabled = !items.renderBeforePlay;
     }
     checkCacheStatus(); // Initial check
+
+    // Trigger pre-warm with the confirmed preferredModel
+    const isGpuReady = await pollGpuAvailability();
+    await chrome.runtime.sendMessage({ type: "ENSURE_OFFSCREEN" });
+    if (isGpuReady) {
+      chrome.runtime.sendMessage({
+        target: "offscreen",
+        type: "PREWARM_MODEL",
+        model: items.preferredModel || "nano",
+      });
+    }
   },
 );
 
@@ -119,9 +208,18 @@ voiceSelect?.addEventListener("change", () => {
   checkCacheStatus();
 });
 
-modelSelect?.addEventListener("change", () => {
-  chrome.storage.local.set({ preferredModel: modelSelect.value });
+modelSelect?.addEventListener("change", async () => {
+  const chosenModel = modelSelect.value;
+  chrome.storage.local.set({ preferredModel: chosenModel });
   checkCacheStatus();
+  const isGpuReady = await pollGpuAvailability();
+  if (isGpuReady) {
+    chrome.runtime.sendMessage({
+      target: "offscreen",
+      type: "PREWARM_MODEL",
+      model: chosenModel,
+    });
+  }
 });
 
 const saveSpeed = debounce((value) => {
@@ -222,15 +320,7 @@ clearBtn?.addEventListener("click", () => {
   }
 });
 
-// 5. Silent Pre-Warm on Panel Load
-(async () => {
-  await chrome.runtime.sendMessage({ type: "ENSURE_OFFSCREEN" });
-  chrome.runtime.sendMessage({
-    target: "offscreen",
-    type: "PREWARM_MODEL",
-    model: modelSelect?.value || "nano",
-  });
-})();
+// 5. Model pre-warming is coordinated above on preference load & dropdown change
 
 // Helper to start playback
 async function startPlayback(textToPlay) {
@@ -240,6 +330,7 @@ async function startPlayback(textToPlay) {
   const model = modelSelect?.value || "nano";
   const renderBeforePlay = renderBeforePlayToggle?.checked || false;
   const autoplay = autoplayToggle?.checked ?? true;
+  const enablePreprocessing = preprocessToggle?.checked ?? true;
 
   if (!text) {
     if (statusText)
@@ -249,8 +340,16 @@ async function startPlayback(textToPlay) {
 
   await chrome.runtime.sendMessage({ type: "ENSURE_OFFSCREEN" });
   
-  const cacheKey = await generateCacheKey(text, voice, speed, model);
+  const cacheKey = await generateCacheKey(text, voice, speed, model, enablePreprocessing);
   const cachedBlob = await getAudio(cacheKey);
+
+  if (!cachedBlob) {
+    const isGpuReady = await pollGpuAvailability();
+    if (!isGpuReady) {
+      if (statusText) statusText.textContent = "Cannot synthesize: WebGPU unavailable.";
+      return;
+    }
+  }
 
   if (cachedBlob) {
     chrome.runtime.sendMessage({
@@ -269,7 +368,8 @@ async function startPlayback(textToPlay) {
       cacheKey,
       renderBeforePlay,
       autoplay,
-      debug: debugToggle?.checked || false
+      debug: debugToggle?.checked || false,
+      preprocess: enablePreprocessing
     });
   }
 
@@ -408,7 +508,11 @@ function resetControls(statusMsg) {
   if (stopBtn) stopBtn.disabled = true;
   if (progressContainer) progressContainer.style.display = "none";
   if (progressFill) progressFill.style.width = "0%";
-  if (statusDot) statusDot.className = "status-dot";
+  if (gpuWarningBox && gpuWarningBox.style.display === "block") {
+    if (statusDot) statusDot.className = "status-dot error";
+  } else {
+    if (statusDot) statusDot.className = "status-dot";
+  }
   if (statusText) statusText.textContent = statusMsg;
 }
 
@@ -431,7 +535,13 @@ function resetControls(statusMsg) {
         resetControls(msg.status || "Stopped.");
       } else if (msg.state === "error") {
         resetControls(msg.status || "Error occurred");
+        if (msg.status?.includes("WebGPU") || msg.status?.includes("chrome://gpu") || msg.status?.includes("graphics acceleration")) {
+          showGpuWarning(
+            'WebGPU is unavailable. Please verify <strong>"Use graphics acceleration when available"</strong> is enabled in <a href="#" id="openSystemSettingsLink" class="gpu-inline-link">chrome://settings/system ↗</a> and relaunch Chrome.'
+          );
+        }
       } else if (msg.state === "playing") {
+        hideGpuWarning();
         if (statusText) statusText.textContent = "Playing audio...";
         if (statusDot) statusDot.className = "status-dot playing";
       } else if (msg.state === "busy") {
@@ -460,9 +570,10 @@ function resetControls(statusMsg) {
 
 
 // 9. Reset Engine Action
-resetGpuBtn?.addEventListener("click", () => {
+resetGpuBtn?.addEventListener("click", async () => {
   if (statusText) statusText.textContent = "Resetting GPU process...";
   if (statusDot) statusDot.className = "status-dot busy";
+  await pollGpuAvailability();
   chrome.runtime.sendMessage({ type: "RESET_GPU_OFFSCREEN" }, (res) => {
     resetControls(res?.message || "Engine reset.");
   });
@@ -499,25 +610,35 @@ function renderDebugLog() {
   debugLog.scrollTop = debugLog.scrollHeight;
 }
 
-// Read initial debug flag state
-chrome.storage.local.get("KITTEN_DEBUG", (result) => {
+// Read initial debug flag and preprocessing state
+chrome.storage.local.get(["KITTEN_DEBUG", "KITTEN_PREPROCESS"], (result) => {
   if (debugToggle) debugToggle.checked = result?.KITTEN_DEBUG === true;
+  if (preprocessToggle) preprocessToggle.checked = result?.KITTEN_PREPROCESS !== false;
 });
 
-// Keep toggle in sync if changed elsewhere
+// Keep toggles in sync if changed elsewhere
 chrome.storage.onChanged.addListener((changes, area) => {
-  if (area === "local" && "KITTEN_DEBUG" in changes && debugToggle) {
-    debugToggle.checked = changes.KITTEN_DEBUG.newValue === true;
+  if (area === "local") {
+    if ("KITTEN_DEBUG" in changes && debugToggle) {
+      debugToggle.checked = changes.KITTEN_DEBUG.newValue === true;
+    }
+    if ("KITTEN_PREPROCESS" in changes && preprocessToggle) {
+      preprocessToggle.checked = changes.KITTEN_PREPROCESS.newValue !== false;
+    }
   }
 });
 
-// Toggle handler — persist to storage (picked up by all contexts via onChanged)
+// Toggle handlers — persist to storage (picked up by all contexts via onChanged)
 debugToggle?.addEventListener("change", () => {
   chrome.storage.local.set({ KITTEN_DEBUG: debugToggle.checked });
   chrome.runtime.sendMessage({ target: "offscreen", type: "SET_DEBUG", enabled: debugToggle.checked }).catch(() => {});
   if (debugToggle.checked && debugEntries.length === 0) {
     if (debugLog) debugLog.value = "-- debug enabled: trigger a Play to see events --";
   }
+});
+
+preprocessToggle?.addEventListener("change", () => {
+  chrome.storage.local.set({ KITTEN_PREPROCESS: preprocessToggle.checked });
 });
 
 // Clear button

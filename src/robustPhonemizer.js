@@ -38,33 +38,44 @@ import { numberToWords } from "./textpreprocessor.js";
  * @param {string} text
  * @returns {Promise<{ ids: number[], method: string, phonemes: string }>}
  */
-export async function robustTextToInputIds(text) {
+export async function robustTextToInputIds(text, enablePreprocessing = true) {
   let cleaned = text.trim();
   if (!cleaned) {
     return { ids: [0, 0], method: "wasm", phonemes: "" };
   }
 
-  // 1. Failsafe: separate number-hyphen-word constructs (e.g. "3,401-unit" -> "3,401 unit")
-  cleaned = cleaned.replace(/\b(\d[\d,]*)-([a-zA-Z]+)\b/g, "$1 $2");
+  if (enablePreprocessing) {
+    // 1. Failsafe: separate number-hyphen-word constructs (e.g. "3,401-unit" -> "3,401 unit")
+    cleaned = cleaned.replace(/\b(\d[\d,]*)-([a-zA-Z]+)\b/g, "$1 $2");
 
-  // 2. Failsafe: convert any comma-formatted numbers or standalone digits to words
-  // so commas inside numbers (e.g. 1,234) are NEVER treated as clause punctuation boundaries
-  const RE_NUM = /\b\d{1,3}(?:,\d{3})+(?:\.\d+)?\b|\b\d+(?:\.\d+)?\b/g;
-  cleaned = cleaned.replace(RE_NUM, (m) => {
-    let raw = m.replace(/,/g, "");
-    if (raw.includes(".")) {
-      const [intPart, decPart] = raw.split(".");
-      const intWords = numberToWords(parseInt(intPart, 10));
-      const digitMap = ["zero", "one", "two", "three", "four", "five", "six", "seven", "eight", "nine"];
-      const decWords = decPart.split("").map(d => digitMap[parseInt(d, 10)] || "zero").join(" ");
-      return `${intWords} point ${decWords}`;
-    }
-    return numberToWords(parseInt(raw, 10));
-  });
+    // 2. Failsafe: convert number ranges (e.g. "69,000-76,000" or "10-20") to "X to Y"
+    const RE_RANGE = /(?<!\d\s*[-–—])(?<![\w.,])(\d{1,3}(?:,\d{3})+(?:\.\d+)?|\d+(?:\.\d+)?)\s*[-–—]\s*(\d{1,3}(?:,\d{3})+(?:\.\d+)?|\d+(?:\.\d+)?)(?![\w.,])(?![-–—]\s*\d)/g;
+    cleaned = cleaned.replace(RE_RANGE, "$1 to $2");
 
-  // 3. Failsafe: convert remaining intra-word hyphens (e.g. "thirty-four", "twenty-one")
-  // to spaces so eSpeak generates distinct, space-separated phoneme words rather than squashed tokens
-  cleaned = cleaned.replace(/(?<=[a-zA-Z])-(?=[a-zA-Z])/g, " ");
+    // 3. Failsafe: convert any comma-formatted numbers or standalone digits to words
+    // so commas inside numbers (e.g. 1,234) are NEVER treated as clause punctuation boundaries
+    const RE_NUM = /\b\d{1,3}(?:,\d{3})+(?:\.\d+)?\b|\b\d+(?:\.\d+)?\b/g;
+    cleaned = cleaned.replace(RE_NUM, (m) => {
+      let raw = m.replace(/,/g, "");
+      if (raw.includes(".")) {
+        const [intPart, decPart] = raw.split(".");
+        const intWords = numberToWords(parseInt(intPart, 10));
+        const digitMap = ["zero", "one", "two", "three", "four", "five", "six", "seven", "eight", "nine"];
+        const decWords = decPart.split("").map(d => digitMap[parseInt(d, 10)] || "zero").join(" ");
+        return `${intWords} point ${decWords}`;
+      }
+      return numberToWords(parseInt(raw, 10));
+    });
+
+    // 4. Failsafe: convert multi-letter intra-word hyphens (e.g. "thirty-four", "twenty-one")
+    // to spaces so eSpeak generates distinct, space-separated phoneme words rather than squashed tokens,
+    // while preserving single-letter initialisms (e.g. "A-I", "A-P-I", "U-S-A")
+    cleaned = cleaned.replace(/(?<=[a-zA-Z]{2,})-(?=[a-zA-Z])|(?<=[a-zA-Z])-(?=[a-zA-Z]{2,})/g, " ");
+  }
+
+  // Strip thousands separator commas from numbers (e.g. 69,000 -> 69000)
+  // so commas inside numbers are NEVER treated as clause punctuation boundaries
+  cleaned = cleaned.replace(/(?<=\d),(?=\d{3}\b)/g, "");
 
   // Segment by punctuation boundaries, keeping trailing punctuation attached
   // e.g. "Hello, world!" -> [{ text: "Hello", punct: "," }, { text: "world", punct: "!" }]

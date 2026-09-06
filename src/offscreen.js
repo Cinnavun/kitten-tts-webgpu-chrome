@@ -1,8 +1,7 @@
-// src/offscreen.js
 import { Readability } from "@mozilla/readability";
 import { dbg, isDebugEnabled, setDebugEnabled } from "./debugLogger.js";
 import { saveAudio, getAudio } from "./db.js";
-import { cleanArticleText, cleanPlainText } from "./articleCleaner.js";
+import { cleanArticleText, cleanPlainText, stripCaptionUI } from "./articleCleaner.js";
 
 /**
  * Debug helper for the offscreen context.
@@ -259,17 +258,20 @@ ttsWorker.onmessage = async (e) => {
 
   // Forward status updates to background/UI over the persistent port
   if (msg.type === "TTS_STATUS" || msg.type === "TTS_PROGRESS") {
-    if (!isCancelled && msg.generationId === generationId) {
+    if (!isCancelled && (!msg.generationId || msg.generationId === generationId)) {
       portSend(msg);
     }
   }
 
   if (msg.type === "TTS_ERROR") {
-    if (!isCancelled && msg.generationId === generationId) {
+    if (!isCancelled && (!msg.generationId || msg.generationId === generationId)) {
       isGenerating = false;
+      const status = msg.error?.startsWith("WebGPU")
+        ? msg.error
+        : `GPU Error: ${msg.error}`;
       portSend({
         type: "TTS_STATUS",
-        status: `GPU Error: ${msg.error}`,
+        status,
         state: "error"
       });
     }
@@ -382,6 +384,9 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
         "[class*='promo' i], [class*='recirc' i]"
       ).forEach((el) => el.remove());
 
+      // Strip caption UI controls, buttons, and toggles before Readability
+      stripCaptionUI(doc);
+
       const reader = new Readability(doc, { maxElemsToParse: 10000 });
       const parsed = reader.parse();
 
@@ -470,7 +475,8 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       speed: msg.speed,
       model: msg.model,
       cacheKey: msg.cacheKey,
-      renderBeforePlay: msg.renderBeforePlay
+      renderBeforePlay: msg.renderBeforePlay,
+      preprocess: msg.preprocess !== false
     };
 
     // ── New Synthesis ───────────────────────────────────────────
@@ -505,7 +511,8 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
         model: msg.model,
         generationId: thisGenId,
         extensionBaseUrl: chrome.runtime.getURL(""),
-        debug: isDebugEnabled()
+        debug: isDebugEnabled(),
+        preprocess: msg.preprocess !== false
       });
 
       sendResponse({ success: true });

@@ -5,16 +5,59 @@ import { dbg, setDebugEnabled, isDebugEnabled } from "./debugLogger.js";
 
 const preprocessor = new TextPreprocessor();
 
-// Force high-performance GPU (e.g. dedicated Nvidia over Intel iGPU)
-// Note: powerPreference is ignored on Windows and logs a warning (https://crbug.com/369219127)
+/** Tracks whether the active WebGPU adapter is a software/CPU fallback adapter (SwiftShader) */
+let isUsingFallbackAdapter = false;
+
+// Intercept navigator.gpu.requestAdapter to:
+// 1. Request high-performance hardware GPU when available
+// 2. Automatically fall back to software/CPU adapter (forceFallbackAdapter: true) if hardware GPU is unavailable
 if (navigator.gpu) {
   const origRequestAdapter = navigator.gpu.requestAdapter.bind(navigator.gpu);
-  navigator.gpu.requestAdapter = (options = {}) => {
+  navigator.gpu.requestAdapter = async (options = {}) => {
     const isWindows = navigator.userAgent?.includes("Windows");
-    if (isWindows) {
-      return origRequestAdapter(options);
+    const primaryOptions = isWindows
+      ? { ...options }
+      : { ...options, powerPreference: "high-performance" };
+
+    let adapter = null;
+    try {
+      adapter = await origRequestAdapter(primaryOptions);
+    } catch (err) {
+      console.warn("[KittenTTS Worker] Primary hardware GPU adapter request threw:", err);
     }
-    return origRequestAdapter({ ...options, powerPreference: "high-performance" });
+
+    if (adapter) {
+      isUsingFallbackAdapter = Boolean(adapter.isFallbackAdapter);
+      dbg("gpu.adapter", {
+        type: isUsingFallbackAdapter ? "fallback" : "hardware",
+        isFallback: isUsingFallbackAdapter
+      });
+      return adapter;
+    }
+
+    // Hardware GPU not available -> Attempt CPU/software fallback adapter (e.g. SwiftShader)
+    console.warn("[KittenTTS Worker] No hardware GPU adapter found. Attempting forceFallbackAdapter: true...");
+    try {
+      adapter = await origRequestAdapter({
+        ...options,
+        forceFallbackAdapter: true
+      });
+      if (adapter) {
+        isUsingFallbackAdapter = true;
+        console.warn("[KittenTTS Worker] Acquired fallback adapter (software/CPU). Warning: Synthesis may be slower than hardware GPU.");
+        dbg("gpu.adapter", {
+          type: "fallback",
+          isFallback: true
+        });
+        return adapter;
+      }
+    } catch (fallbackErr) {
+      console.error("[KittenTTS Worker] Fallback adapter request failed:", fallbackErr);
+    }
+
+    // Neither hardware nor fallback adapter available
+    isUsingFallbackAdapter = false;
+    return null;
   };
 }
 
@@ -22,21 +65,9 @@ if (navigator.gpu) {
 
 // Models shipped locally with the extension (loaded from models/ directory)
 const LOCAL_MODELS = {
-  nano: { onnx: "kitten_tts_nano_v0_8.onnx", voices: "voices.npz" }
-};
-
-// Models that must be downloaded from HuggingFace on first use (browser-cached after)
-const REMOTE_MODELS = {
-  mini: {
-    url: "https://huggingface.co/KittenML/kitten-tts-mini-0.8/resolve/main/kitten_tts_mini_v0_8.onnx",
-    voicesUrl: "https://huggingface.co/KittenML/kitten-tts-mini-0.8/resolve/main/voices.npz",
-    size: "78 MB"
-  },
-  micro: {
-    url: "https://huggingface.co/KittenML/kitten-tts-micro-0.8/resolve/main/kitten_tts_micro_v0_8.onnx",
-    voicesUrl: "https://huggingface.co/KittenML/kitten-tts-micro-0.8/resolve/main/voices.npz",
-    size: "41 MB"
-  }
+  nano: { onnx: "kitten_tts_nano_v0_8.onnx", voices: "voices.npz" },
+  micro: { onnx: "kitten_tts_micro_v0_8.onnx", voices: "voices_micro.npz" },
+  mini: { onnx: "kitten_tts_mini_v0_8.onnx", voices: "voices_mini.npz" }
 };
 
 /** Cached engine instances keyed by model name — survives across generations */
@@ -49,8 +80,8 @@ let extensionBaseUrl = "";
 
 /**
  * Get or create a KittenTTSEngine for the requested model.
- * Local models (nano) are loaded from the extension's models/ directory.
- * Remote models (micro, mini) are fetched from HuggingFace and browser-cached.
+ * All models (nano, micro, mini) are shipped locally in the extension's models/ directory
+ * to ensure 100% offline security, privacy, and zero external network requests.
  */
 async function getEngine(model = "nano", onProgress) {
   const cached = engineCache.get(model);
@@ -63,7 +94,21 @@ async function getEngine(model = "nano", onProgress) {
     const engine = new KittenTTSEngine();
 
     onProgress?.("Initializing WebGPU…");
-    await engine.init();
+    try {
+      await engine.init();
+    } catch (initErr) {
+      const initErrMsg = initErr.message || String(initErr);
+      if (initErrMsg.includes("WebGPU not available") || initErrMsg.includes("WebGPU")) {
+        throw new Error(
+          "WebGPU not available. Ensure 'Use graphics acceleration when available' is enabled in Chrome Settings > System and relaunch Chrome (see chrome://gpu for details)."
+        );
+      }
+      throw initErr;
+    }
+
+    if (isUsingFallbackAdapter) {
+      onProgress?.("WebGPU running in CPU fallback mode (slower)…");
+    }
 
     let onnxUrl, voicesUrl;
 
@@ -72,11 +117,6 @@ async function getEngine(model = "nano", onProgress) {
       onnxUrl = `${extensionBaseUrl}models/${local.onnx}`;
       voicesUrl = `${extensionBaseUrl}models/${local.voices}`;
       onProgress?.(`Loading local ${model} model…`);
-    } else if (REMOTE_MODELS[model]) {
-      const remote = REMOTE_MODELS[model];
-      onnxUrl = remote.url;
-      voicesUrl = remote.voicesUrl;
-      onProgress?.(`Downloading ${model} model (${remote.size})…`);
     } else {
       throw new Error(`Unknown model: ${model}`);
     }
@@ -148,6 +188,36 @@ function segmentSentences(textBlock) {
 }
 
 /**
+ * Splits a long sentence at punctuation boundaries only when NOT inside open parentheses/brackets.
+ * Prevents severed clauses like "Johnson & Johnson (J-N-J:" / "U-S) said Monday...".
+ */
+function splitOutsideParens(text, regex) {
+  const parts = [];
+  let lastIdx = 0;
+  let parenDepth = 0;
+  for (let i = 0; i < text.length; i++) {
+    const ch = text[i];
+    if (ch === "(" || ch === "[" || ch === "{") parenDepth++;
+    else if (ch === ")" || ch === "]" || ch === "}") parenDepth = Math.max(0, parenDepth - 1);
+
+    if (parenDepth === 0) {
+      const slice = text.slice(i);
+      const m = slice.match(regex);
+      if (m && m.index === 0) {
+        parts.push(text.slice(lastIdx, i + m[1].length));
+        i += m[0].length - 1;
+        lastIdx = i + 1;
+      }
+    }
+  }
+  if (lastIdx < text.length) {
+    const remaining = text.slice(lastIdx);
+    if (remaining.trim()) parts.push(remaining);
+  }
+  return parts.length > 0 ? parts : [text];
+}
+
+/**
  * Preprocess and split text into natural sentence-level chunks for TTS.
  * 
  * Design Principles:
@@ -159,7 +229,7 @@ function segmentSentences(textBlock) {
  * 4. Paragraph breaks are defined strictly by true double-newlines (\n\n+). Internal soft
  *    newlines (\n) are flattened into spaces to prevent premature sentence cutting.
  */
-function chunkText(text) {
+function chunkText(text, enablePreprocessing = true) {
   if (!text || typeof text !== "string") return [];
 
   const MAX_CHUNK_LENGTH = 380;     // Safe upper limit for Windows WebGPU 2s TDR watchdog
@@ -180,8 +250,10 @@ function chunkText(text) {
     // so Intl.Segmenter does not treat them as sentence breaks (UAX #29 Sep rule).
     const normalizedPara = rawPara.replace(/\r?\n+/g, " ");
 
-    // Step 1: Preprocess the entire paragraph FIRST
-    const processedPara = preprocessor.process(normalizedPara).trim();
+    // Step 1: Preprocess the entire paragraph FIRST (if enabled)
+    const processedPara = enablePreprocessing
+      ? preprocessor.process(normalizedPara).trim()
+      : normalizedPara.trim();
     if (!processedPara || !/[a-zA-Z0-9]/.test(processedPara)) continue;
 
     // Step 2: Segment the preprocessed paragraph into clean, whole sentences
@@ -214,11 +286,11 @@ function chunkText(text) {
       if (trimmedSentence.length > MAX_CHUNK_LENGTH) {
         if (currentChunk) pushChunk();
 
-        // Try major syntactic breaks first (semicolon, colon, em-dash)
-        let subParts = trimmedSentence.split(/(?<=[;:—–])\s+/);
+        // Try major syntactic breaks first (semicolon, colon, em-dash) outside parentheses
+        let subParts = splitOutsideParens(trimmedSentence, /^([;:—–])\s+/);
         if (subParts.length === 1 && subParts[0].length > MAX_CHUNK_LENGTH) {
-          // Fallback: split at clause boundaries (commas)
-          subParts = trimmedSentence.split(/(?<=[,])\s+/);
+          // Fallback: split at clause boundaries (commas) outside parentheses
+          subParts = splitOutsideParens(trimmedSentence, /^([,])\s+/);
         }
 
         for (const part of subParts) {
@@ -295,8 +367,8 @@ let isCancelled = false;
  * Synthesize a single text chunk to a WAV blob using the engine directly.
  * Bypasses the library's textToSpeech() convenience function (which hardcodes HuggingFace URLs).
  */
-async function synthesizeChunk(engine, text, voice, speed) {
-  let idsData = await robustTextToInputIds(text);
+async function synthesizeChunk(engine, text, voice, speed, enablePreprocessing = true) {
+  let idsData = await robustTextToInputIds(text, enablePreprocessing);
   let generateResult = await engine.generate(idsData.ids, voice, speed, text.length);
   const blob = float32ToWav(generateResult.waveform, 24000);
 
@@ -313,9 +385,9 @@ async function synthesizeChunk(engine, text, voice, speed) {
   return blob;
 }
 
-function synthesizeWithTimeout(engine, text, voice, speed, timeoutMs = 60000) {
+function synthesizeWithTimeout(engine, text, voice, speed, enablePreprocessing = true, timeoutMs = 60000) {
   return Promise.race([
-    synthesizeChunk(engine, text, voice, speed),
+    synthesizeChunk(engine, text, voice, speed, enablePreprocessing),
     new Promise((_, reject) =>
       setTimeout(() => reject(new Error("GPU generation timed out.")), timeoutMs)
     )
@@ -329,6 +401,7 @@ self.onmessage = async (e) => {
 
   if (msg.type === "RESET_ENGINE") {
     isCancelled = true;
+    isUsingFallbackAdapter = false;
     for (const [model, engine] of engineCache.entries()) {
       try {
         if (typeof engine.free === 'function') engine.free();
@@ -361,10 +434,13 @@ self.onmessage = async (e) => {
       await getEngine(msg.model || "nano", (stage) => {
         self.postMessage({ type: "TTS_STATUS", status: stage, state: "busy" });
       });
-      self.postMessage({ type: "PREWARM_DONE", success: true });
+      self.postMessage({ type: "TTS_STATUS", status: "Ready", state: "idle" });
+      self.postMessage({ type: "PREWARM_DONE", success: true, model: msg.model || "nano" });
     } catch (err) {
       console.warn("[KittenTTS Worker] Pre-warm failed:", err.message);
-      self.postMessage({ type: "PREWARM_DONE", success: false, error: err.message });
+      self.postMessage({ type: "PREWARM_DONE", success: false, error: err.message, model: msg.model || "nano" });
+      // Notify UI immediately via TTS_STATUS so side panel displays the diagnostic error
+      self.postMessage({ type: "TTS_STATUS", status: err.message, state: "error" });
     }
   }
 
@@ -377,12 +453,13 @@ self.onmessage = async (e) => {
     if (typeof msg.debug === "boolean") {
       setDebugEnabled(msg.debug);
     }
-    const { text, voice, speed, model, generationId } = msg;
+    const { text, voice, speed, model, generationId, preprocess = true } = msg;
+    const enablePreprocessing = preprocess !== false;
 
-    dbg("PLAY_TEXT.received", { charCount: text.length, voice, speed, model, fullText: text });
+    dbg("PLAY_TEXT.received", { charCount: text.length, voice, speed, model, enablePreprocessing, fullText: text });
 
     try {
-      const chunks = chunkText(text);
+      const chunks = chunkText(text, enablePreprocessing);
       if (chunks.length === 0) {
         self.postMessage({ type: "TTS_ERROR", error: "No readable text found.", generationId });
         return;
@@ -395,7 +472,9 @@ self.onmessage = async (e) => {
 
       self.postMessage({
         type: "TTS_STATUS",
-        status: `Synthesizing ${chunks.length} chunk${chunks.length > 1 ? "s" : ""}…`,
+        status: isUsingFallbackAdapter
+          ? `Synthesizing ${chunks.length} chunk${chunks.length > 1 ? "s" : ""} (CPU mode)…`
+          : `Synthesizing ${chunks.length} chunk${chunks.length > 1 ? "s" : ""}…`,
         state: "busy",
         generationId
       });
@@ -422,14 +501,14 @@ self.onmessage = async (e) => {
           dbg("synthesize.chunk", {
             chunkIndex: i + 1,
             totalChunks: chunks.length,
-            charLength: chunk.text.length,
-            pauseAfterSeconds: pauseAfter,
+            charCount: chunk.text.length,
             paraEnd: chunk.paraEnd,
-            textToModel: chunk.text
+            pauseAfterSec: pauseAfter,
+            text: chunk.text
           });
 
           const blob = await synthesizeWithTimeout(
-            engine, chunk.text, voice || "Jasper", speed || 1.0
+            engine, chunk.text, voice || "Jasper", speed || 1.0, enablePreprocessing
           );
 
           if (isCancelled) break;
@@ -477,7 +556,11 @@ self.onmessage = async (e) => {
 
     } catch (err) {
       console.error("Worker Engine Error:", err);
-      self.postMessage({ type: "TTS_ERROR", error: err.message, generationId });
+      let errorMsg = err.message || String(err);
+      if (errorMsg.includes("WebGPU not available") && !errorMsg.includes("chrome://gpu")) {
+        errorMsg = "WebGPU not available. Ensure 'Use graphics acceleration when available' is enabled in Chrome Settings > System and relaunch Chrome (see chrome://gpu for details).";
+      }
+      self.postMessage({ type: "TTS_ERROR", error: errorMsg, generationId });
     }
   }
 };

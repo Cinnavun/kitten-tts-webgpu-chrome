@@ -1,6 +1,7 @@
 node_modules/
 /node_modules/**
 dist/
+dist-store/
 .DS_Store
 .vscode/
 *.log
@@ -16,3 +17,12 @@ kitten-tts-webgpu-chrome-store.zip
 gitignore
 package-lock.json
 package-lock.json
+Kitten-tts-webgpu-Chrome.code-workspace
+scripts/test-preprocessor.mjs
+models/kitten_tts_micro_v0_8.onnx
+models/kitten_tts_mini_v0_8.onnx
+dist/sidepanel.js
+scripts/build-store.js
+scripts/build-store.ps1
+scripts/download-models.mjs
+scripts/test-article-cleaner.mjs

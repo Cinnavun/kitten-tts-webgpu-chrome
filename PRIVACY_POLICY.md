@@ -43,19 +43,17 @@ We explicitly do **not**:
 - Use cookies for tracking or profiling
 - Share data with third parties
 - Install malware, adware, or spyware
-- Make network requests except to download models on first use
+- Make any network requests for text-to-speech synthesis, speech processing, or models
 
 ---
 
-## Model Downloads
+## Pre-Bundled Local Models (Zero Network Requests)
 
-When you first use the micro or mini TTS models, the extension downloads:
+All three supported KittenTTS models (Nano, Micro, and Mini) and voice style embeddings are pre-bundled directly within the extension package:
 
-- **From:** HuggingFace CDN (models.huggingface.co)
-- **What:** ONNX model files only (40MB or 78MB depending on selection)
-- **Why:** Nano model is pre-bundled; others are downloaded and cached locally
-- **Browser Cache:** Files are stored in your browser cache and reused for subsequent sessions
-- **No Tracking:** Model downloads are standard HTTPS requests with no identifying information
+- **Zero Remote Downloads:** The extension makes **zero** network requests to HuggingFace or any external CDN at runtime.
+- **Immediate Offline Availability:** Speech synthesis is 100% available offline immediately upon installation with no initial setup delay.
+- **Air-Gapped Privacy:** No IP address, browser metadata, or usage patterns are ever transmitted to remote servers.
 
 ---
 
@@ -73,20 +71,17 @@ Saves preferences in chrome.storage.local only. No transmission.
 ### offscreen
 Runs WebGPU synthesis locally. No data collected.
 
-### activeTab
-Accesses current webpage for extraction only.
-
 ### scripting
-Injects Mozilla Readability for local HTML parsing.
+Injects the local readable article extractor into the active webpage when requested. No data collected.
 
 ### tabs
-Tracks tab state for UI lifecycle.
+Queries active tab ID and URL to coordinate article extraction and keyboard shortcuts. No browsing history is tracked or retained.
 
 ### notifications
-Sends local notifications. No data collected.
+Sends local notifications for status alerts or errors during background processing. No data collected.
 
-### host_permissions
-Optional permissions for web page access.
+### optional_host_permissions (http://*/*, https://*/*)
+Optional permission requested strictly on user action when scanning a web article for text-to-speech. No page data is transmitted off-device.
 
 ---
 
