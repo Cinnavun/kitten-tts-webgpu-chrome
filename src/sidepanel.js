@@ -189,15 +189,23 @@ chrome.storage.local.get(
     }
     checkCacheStatus(); // Initial check
 
-    // Trigger pre-warm with the confirmed preferredModel
+    // Trigger pre-warm with the confirmed preferredModel ONLY if no active synthesis/playback
     const isGpuReady = await pollGpuAvailability();
     await chrome.runtime.sendMessage({ type: "ENSURE_OFFSCREEN" });
     if (isGpuReady) {
-      chrome.runtime.sendMessage({
-        target: "offscreen",
-        type: "PREWARM_MODEL",
-        model: items.preferredModel || "nano",
-      });
+      const activeState = await new Promise((resolve) => {
+        chrome.runtime.sendMessage({ type: "GET_CURRENT_PLAYBACK_STATE" }, (res) => {
+          resolve(res);
+        });
+      }).catch(() => null);
+
+      if (!activeState || activeState.state === "idle") {
+        chrome.runtime.sendMessage({
+          target: "offscreen",
+          type: "PREWARM_MODEL",
+          model: items.preferredModel || "nano",
+        });
+      }
     }
   },
 );
@@ -373,7 +381,10 @@ async function startPlayback(textToPlay) {
     });
   }
 
-  if (playBtn) playBtn.disabled = true;
+  if (playBtn) {
+    playBtn.disabled = true;
+    playBtn.textContent = cachedBlob ? "▶ Playing Audio" : "⏳ Generating...";
+  }
   if (stopBtn) stopBtn.disabled = false;
   if (downloadBtn) downloadBtn.style.display = "none";
   if (progressContainer) progressContainer.style.display = "block";
@@ -514,20 +525,49 @@ function resetControls(statusMsg) {
     if (statusDot) statusDot.className = "status-dot";
   }
   if (statusText) statusText.textContent = statusMsg;
+  checkCacheStatus();
 }
 
 // 8. Progress Listener — connected via Port for zero-overhead relay from background
 (function connectUiPort() {
   const port = chrome.runtime.connect({ name: "tts-ui" });
   port.onMessage.addListener((msg) => {
-    if (msg.type === "TTS_PROGRESS") {
+    if (msg.type === "TTS_STATE_SYNC") {
+      if (msg.state === "busy") {
+        if (playBtn) {
+          playBtn.disabled = true;
+          playBtn.textContent = "⏳ Generating...";
+        }
+        if (stopBtn) stopBtn.disabled = false;
+        if (progressContainer) progressContainer.style.display = "block";
+        if (progressFill) progressFill.style.width = `${msg.percent || 0}%`;
+        if (statusDot) statusDot.className = "status-dot busy";
+        const chunkInfo = (msg.current && msg.total) ? ` (chunk ${msg.current}/${msg.total})` : "";
+        if (statusText) statusText.textContent = msg.status || `Synthesizing audio... ${msg.percent || 0}%${chunkInfo}`;
+      } else if (msg.state === "playing") {
+        hideGpuWarning();
+        if (playBtn) {
+          playBtn.disabled = true;
+          playBtn.textContent = "▶ Playing Audio";
+        }
+        if (stopBtn) stopBtn.disabled = false;
+        if (progressContainer) progressContainer.style.display = "none";
+        if (statusDot) statusDot.className = "status-dot playing";
+        if (statusText) statusText.textContent = "Playing audio...";
+      }
+    } else if (msg.type === "TTS_PROGRESS") {
       if (statusDot) statusDot.className = "status-dot busy";
       if (progressContainer) progressContainer.style.display = "block";
+      if (playBtn) {
+        playBtn.disabled = true;
+        playBtn.textContent = "⏳ Generating...";
+      }
+      if (stopBtn) stopBtn.disabled = false;
       requestAnimationFrame(() => {
         if (progressFill) progressFill.style.width = `${msg.percent}%`;
-        if (statusText) statusText.textContent = `Synthesizing audio... ${msg.percent}%`;
+        const chunkInfo = (msg.current && msg.total) ? ` (chunk ${msg.current}/${msg.total})` : "";
+        if (statusText) statusText.textContent = `Synthesizing audio... ${msg.percent}%${chunkInfo}`;
       });
-      if (stopBtn) stopBtn.disabled = false;
     } else if (msg.type === "TTS_STATUS") {
       if (msg.state === "idle") {
         resetControls(msg.status || "Finished playing.");
@@ -542,9 +582,22 @@ function resetControls(statusMsg) {
         }
       } else if (msg.state === "playing") {
         hideGpuWarning();
+        if (playBtn) {
+          playBtn.disabled = true;
+          playBtn.textContent = "▶ Playing Audio";
+        }
+        if (stopBtn) stopBtn.disabled = false;
+        if (progressContainer) progressContainer.style.display = "none";
         if (statusText) statusText.textContent = "Playing audio...";
         if (statusDot) statusDot.className = "status-dot playing";
       } else if (msg.state === "busy") {
+        if (playBtn) {
+          playBtn.disabled = true;
+          playBtn.textContent = "⏳ Generating...";
+        }
+        if (stopBtn) stopBtn.disabled = false;
+        if (progressContainer) progressContainer.style.display = "block";
+        if (statusDot) statusDot.className = "status-dot busy";
         if (statusText) statusText.textContent = msg.status;
       }
     } else if (msg.type === "TTS_AUDIO_READY") {

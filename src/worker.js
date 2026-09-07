@@ -431,17 +431,14 @@ self.onmessage = async (e) => {
 
   if (msg.type === "PREWARM_MODEL") {
     try {
-      await getEngine(msg.model || "nano", (stage) => {
-        self.postMessage({ type: "TTS_STATUS", status: stage, state: "busy" });
-      });
-      self.postMessage({ type: "TTS_STATUS", status: "Ready", state: "idle" });
+      await getEngine(msg.model || "nano");
+      dbg("prewarm.done", { model: msg.model || "nano" });
       self.postMessage({ type: "PREWARM_DONE", success: true, model: msg.model || "nano" });
     } catch (err) {
       console.warn("[KittenTTS Worker] Pre-warm failed:", err.message);
       self.postMessage({ type: "PREWARM_DONE", success: false, error: err.message, model: msg.model || "nano" });
-      // Notify UI immediately via TTS_STATUS so side panel displays the diagnostic error
-      self.postMessage({ type: "TTS_STATUS", status: err.message, state: "error" });
     }
+    return;
   }
 
   if (msg.type === "STOP_AUDIO") {
@@ -482,15 +479,16 @@ self.onmessage = async (e) => {
       for (let i = 0; i < chunks.length; i++) {
         if (isCancelled) break;
         const chunk = chunks[i];
-        const percent = Math.round(((i + 1) / chunks.length) * 100);
+        const startPercent = Math.round((i / chunks.length) * 100);
 
-        // Send clean progress — no per-chunk "Phonemizing…" / "Generating speech…" spam
+        // Notify that we are starting this chunk (e.g. 0% at chunk 1)
         self.postMessage({
           type: "TTS_PROGRESS",
-          percent,
+          percent: startPercent,
           current: i + 1,
           total: chunks.length,
-          generationId
+          generationId,
+          stage: "synthesizing"
         });
 
         try {
@@ -514,6 +512,16 @@ self.onmessage = async (e) => {
           if (isCancelled) break;
 
           if (blob) {
+            const donePercent = Math.round(((i + 1) / chunks.length) * 100);
+            self.postMessage({
+              type: "TTS_PROGRESS",
+              percent: donePercent,
+              current: i + 1,
+              total: chunks.length,
+              generationId,
+              stage: "chunk_ready"
+            });
+
             const arrayBuf = await blob.arrayBuffer();
             dbg("synthesize.chunkDone", {
               chunkIndex: i + 1,
@@ -551,6 +559,14 @@ self.onmessage = async (e) => {
       }
 
       if (!isCancelled) {
+        self.postMessage({
+          type: "TTS_PROGRESS",
+          percent: 100,
+          current: chunks.length,
+          total: chunks.length,
+          generationId,
+          stage: "complete"
+        });
         self.postMessage({ type: "TTS_COMPLETE", generationId });
       }
 

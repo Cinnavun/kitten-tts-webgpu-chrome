@@ -166,21 +166,23 @@ async function ensureContentScriptsInjected(tabId) {
 }
 
 // 2. In-Page Floating Toast UI (via content script)
-async function sendToastToActiveTab(payload) {
-  try {
-    const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
-    if (!tab?.id) return;
+// Only populated when the user explicitly triggers an in-page background reading session.
+let activeToastTabId = null;
 
+async function sendToastToActiveTab(payload, targetTabId = activeToastTabId) {
+  if (!targetTabId) return; // Never show in-page toasts when not in an active toast session
+
+  try {
     try {
-      await chrome.tabs.sendMessage(tab.id, {
+      await chrome.tabs.sendMessage(targetTabId, {
         type: "SHOW_TOAST",
         payload
       });
     } catch (err) {
       if (err.message && err.message.includes("Receiving end does not exist")) {
         try {
-          await ensureContentScriptsInjected(tab.id);
-          await chrome.tabs.sendMessage(tab.id, {
+          await ensureContentScriptsInjected(targetTabId);
+          await chrome.tabs.sendMessage(targetTabId, {
             type: "SHOW_TOAST",
             payload
           });
@@ -196,7 +198,7 @@ async function sendToastToActiveTab(payload) {
           }
         }
       } else {
-        // Any other message dispatch error (e.g. unscriptable tab context)
+        // Any other message dispatch error (e.g. tab closed or unscriptable context)
         if (payload.text && (payload.text.toLowerCase().includes("error") || payload.text.includes("Cannot extract"))) {
           chrome.notifications.create({
             type: "basic",
@@ -299,27 +301,42 @@ chrome.runtime.onInstalled.addListener(() => {
 // 4. Handle Context Menu Actions
 chrome.contextMenus.onClicked.addListener(async (info, tab) => {
   if (info.menuItemId === "selection-read-bg" && info.selectionText) {
+    activeToastTabId = tab?.id || null;
     updateActionBadge("loading", "0%", "Starting WebGPU...");
-    await sendToastToActiveTab({ text: "Initializing WebGPU..." });
+    if (activeToastTabId) {
+      await sendToastToActiveTab({ text: "Initializing WebGPU..." }, activeToastTabId);
+    }
     await dispatchPlayText(info.selectionText);
   } else if (info.menuItemId === "selection-read-panel" && info.selectionText) {
+    // Reading in side panel: clear activeToastTabId so no floating toasts appear in webpage
+    activeToastTabId = null;
     await openSidePanel(tab);
     await chrome.storage.local.set({ ttsText: info.selectionText });
     await dispatchPlayText(info.selectionText);
   } else if (info.menuItemId === "page-read-article-bg" && tab?.id) {
+    activeToastTabId = tab.id;
     try {
       updateActionBadge("loading", "...", "Extracting article...");
+      await sendToastToActiveTab({ text: "Extracting article..." }, activeToastTabId);
       const article = await runArticleExtractor(tab);
       if (article?.text) {
-        await sendToastToActiveTab({ text: "Article extracted, starting GPU..." });
+        await sendToastToActiveTab({ text: "Article extracted, starting GPU..." }, activeToastTabId);
         await dispatchPlayText(article.text);
       } else {
         updateActionBadge("error", "!", "No readable article found.");
-        await sendToastToActiveTab({ action: "remove" });
+        await sendToastToActiveTab({ text: "No readable article found on this page." }, activeToastTabId);
+        setTimeout(() => {
+          sendToastToActiveTab({ action: "remove" }, activeToastTabId);
+          activeToastTabId = null;
+        }, 3000);
       }
     } catch (err) {
       updateActionBadge("error", "!", err.message);
-      await sendToastToActiveTab({ text: `Error: ${err.message}` });
+      await sendToastToActiveTab({ text: `Error: ${err.message}` }, activeToastTabId);
+      setTimeout(() => {
+        sendToastToActiveTab({ action: "remove" }, activeToastTabId);
+        activeToastTabId = null;
+      }, 3000);
     }
   } else if (info.menuItemId === "page-open-panel-only") {
     await openSidePanel(tab);
@@ -336,20 +353,29 @@ chrome.commands.onCommand.addListener(async (command, tab) => {
     }
     if (!targetTab?.id) return;
 
+    activeToastTabId = targetTab.id;
     try {
       updateActionBadge("loading", "...", "Extracting article...");
-      await sendToastToActiveTab({ text: "Extracting article..." });
+      await sendToastToActiveTab({ text: "Extracting article..." }, activeToastTabId);
       const article = await runArticleExtractor(targetTab);
       if (article?.text) {
-        await sendToastToActiveTab({ text: "Article extracted, starting GPU..." });
+        await sendToastToActiveTab({ text: "Article extracted, starting GPU..." }, activeToastTabId);
         await dispatchPlayText(article.text);
       } else {
         updateActionBadge("error", "!", "No readable article found.");
-        await sendToastToActiveTab({ text: "No readable article found on this page." });
+        await sendToastToActiveTab({ text: "No readable article found on this page." }, activeToastTabId);
+        setTimeout(() => {
+          sendToastToActiveTab({ action: "remove" }, activeToastTabId);
+          activeToastTabId = null;
+        }, 3000);
       }
     } catch (err) {
       updateActionBadge("error", "!", err.message);
-      await sendToastToActiveTab({ text: `Error: ${err.message}` });
+      await sendToastToActiveTab({ text: `Error: ${err.message}` }, activeToastTabId);
+      setTimeout(() => {
+        sendToastToActiveTab({ action: "remove" }, activeToastTabId);
+        activeToastTabId = null;
+      }, 3000);
     }
   }
 });
@@ -362,11 +388,20 @@ chrome.commands.onCommand.addListener(async (command, tab) => {
 let offscreenPort = null;   // the tts-stream port from offscreen.js
 let uiPort = null;          // the tts-ui port from sidepanel.js
 
-async function stopPlayback() {
-  const hasDoc = await hasOffscreenDocument();
-  if (hasDoc) {
-    await chrome.offscreen.closeDocument().catch(() => {});
-  }
+let currentPlaybackState = {
+  state: "idle",
+  status: "Ready",
+  percent: 0,
+  current: 0,
+  total: 0
+};
+
+function stopPlayback() {
+  // Do NOT destroy/close the offscreen document on normal playback stop or idle!
+  // Closing the document wipes the prewarmed WebGPU pipelines and cache.
+  // The offscreen document is only closed during explicit RESET_GPU_OFFSCREEN.
+  currentPlaybackState.state = "idle";
+  currentPlaybackState.status = "Ready";
   updateActionBadge("idle");
 }
 
@@ -375,29 +410,52 @@ async function stopPlayback() {
  * Updates the action badge, the in-page toast, and relays to the side panel.
  */
 function handleStreamMessage(msg) {
-  // Relay to side panel if it's connected
-  try { uiPort?.postMessage(msg); } catch (_) { uiPort = null; }
-
   if (msg.type === "TTS_PROGRESS") {
+    currentPlaybackState.state = "busy";
+    currentPlaybackState.percent = msg.percent;
+    currentPlaybackState.current = msg.current;
+    currentPlaybackState.total = msg.total;
+    currentPlaybackState.status = `Synthesizing audio... ${msg.percent}%`;
+
     updateActionBadge("loading", `${msg.percent}%`, `Synthesizing audio: ${msg.percent}%`);
-    sendToastToActiveTab({ text: `Synthesizing: ${msg.percent}% (${msg.current}/${msg.total})` });
+    if (activeToastTabId) {
+      sendToastToActiveTab({ text: `Synthesizing: ${msg.percent}% (${msg.current}/${msg.total})` }, activeToastTabId);
+    }
   } else if (msg.type === "TTS_STATUS") {
+    currentPlaybackState.state = msg.state;
+    if (msg.status) currentPlaybackState.status = msg.status;
+
     if (msg.state === "playing") {
       updateActionBadge("playing", "▶", "Playing audio");
-      sendToastToActiveTab({ text: "Playing audio" });
+      if (activeToastTabId) {
+        sendToastToActiveTab({ text: "Playing audio" }, activeToastTabId);
+      }
     } else if (msg.state === "idle" || msg.state === "stopped") {
       stopPlayback();
-      sendToastToActiveTab({ action: "remove" });
+      if (activeToastTabId) {
+        sendToastToActiveTab({ action: "remove" }, activeToastTabId);
+        activeToastTabId = null;
+      }
     } else if (msg.state === "error") {
       updateActionBadge("error", "!", msg.status);
-      sendToastToActiveTab({ text: `Error: ${msg.status}` });
-      setTimeout(() => sendToastToActiveTab({ action: "remove" }), 4000);
+      if (activeToastTabId) {
+        sendToastToActiveTab({ text: `Error: ${msg.status}` }, activeToastTabId);
+        setTimeout(() => {
+          sendToastToActiveTab({ action: "remove" }, activeToastTabId);
+          activeToastTabId = null;
+        }, 4000);
+      }
       stopPlayback();
     } else if (msg.state === "busy") {
       updateActionBadge("loading", "...", msg.status);
-      sendToastToActiveTab({ text: msg.status });
+      if (activeToastTabId) {
+        sendToastToActiveTab({ text: msg.status }, activeToastTabId);
+      }
     }
   }
+
+  // Relay to side panel if it's connected
+  try { uiPort?.postMessage(msg); } catch (_) { uiPort = null; }
 }
 
 chrome.runtime.onConnect.addListener((port) => {
@@ -407,6 +465,15 @@ chrome.runtime.onConnect.addListener((port) => {
     port.onDisconnect.addListener(() => { offscreenPort = null; });
   } else if (port.name === "tts-ui") {
     uiPort = port;
+    // Immediately synchronize the newly connected side panel with current state
+    if (currentPlaybackState.state !== "idle") {
+      try {
+        uiPort.postMessage({
+          type: "TTS_STATE_SYNC",
+          ...currentPlaybackState
+        });
+      } catch (_) { }
+    }
     port.onDisconnect.addListener(() => { uiPort = null; });
   }
 });
@@ -453,13 +520,21 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
         }
         await chrome.storage.local.remove(["ttsText"]).catch(() => { });
         updateActionBadge("idle");
-        sendToastToActiveTab({ action: "remove" });
+        if (activeToastTabId) {
+          sendToastToActiveTab({ action: "remove" }, activeToastTabId);
+          activeToastTabId = null;
+        }
         await setupOffscreenDocument();
         sendResponse({ success: true, message: "GPU engine reset & model cache cleared." });
       } catch (err) {
         sendResponse({ success: false, error: err.message });
       }
     })();
+    return true;
+  }
+
+  if (msg.type === "GET_CURRENT_PLAYBACK_STATE") {
+    sendResponse({ ...currentPlaybackState });
     return true;
   }
 

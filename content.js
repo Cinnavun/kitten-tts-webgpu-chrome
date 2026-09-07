@@ -57,7 +57,7 @@ function showToast(payload) {
   toast.appendChild(textSpan);
   toast.appendChild(stopBtn);
 
-  document.getElementById("__kitten_stop_btn")?.addEventListener("click", () => {
+  stopBtn.addEventListener("click", () => {
     chrome.runtime?.sendMessage?.({ target: "offscreen", type: "STOP_AUDIO" });
     toast.remove();
   });

@@ -2,6 +2,22 @@
 
 All notable changes to this project will be documented in this file.
 
+## [1.13] / [1.3.16] - 2026-09-06
+
+### Toast Targeting, Offscreen Lifecycle & Synthesis State Synchronization
+- **Targeted In-Page Toast Sessions & Startup Glitch Fix**:
+  - Eliminated glitchy floating toast popping up and disappearing on browser startup or side panel launch.
+  - **Root Cause**: `PREWARM_MODEL` in [`src/worker.js`](file:///c:/Users/llsha/Documents/Atomic_chat/Kitten-tts-webgpu-Chrome/src/worker.js) dispatched `TTS_STATUS (busy)` and `TTS_STATUS (idle)` messages into the general playback stream. [`background.js`](file:///c:/Users/llsha/Documents/Atomic_chat/Kitten-tts-webgpu-Chrome/background.js) blindly relayed these status updates to `sendToastToActiveTab()`, injecting content scripts and flashing a toast on the active browser tab.
+  - **Fix**: Restricted in-page floating toasts strictly to explicit background reading sessions via `activeToastTabId` ([`background.js`](file:///c:/Users/llsha/Documents/Atomic_chat/Kitten-tts-webgpu-Chrome/background.js)). When prewarming models or operating within the side panel, no in-page toasts are ever injected. Removed `TTS_STATUS` stream emissions from `PREWARM_MODEL` in [`src/worker.js`](file:///c:/Users/llsha/Documents/Atomic_chat/Kitten-tts-webgpu-Chrome/src/worker.js), returning only `{ type: "PREWARM_DONE" }`.
+- **Resolved 5% Stuck Synthesis Progress on Context Menu & Text Dispatch**:
+  - Fixed an issue where sending text or using context menus caused the progress bar to reach ~5% and permanently stall until "Generate Audio" was clicked in the side panel.
+  - **Root Cause**: When selecting "Read Selected Text in Side Panel", `dispatchPlayText()` began synthesis of chunk 1 (`(1/total)*100` = ~5%). Concurrently, opening the side panel sent `PREWARM_MODEL` to the worker. When prewarm finished, it emitted `TTS_STATUS (idle)`. [`background.js`](file:///c:/Users/llsha/Documents/Atomic_chat/Kitten-tts-webgpu-Chrome/background.js) handled `idle` by invoking `stopPlayback()`, which called `chrome.offscreen.closeDocument()`, abruptly terminating the offscreen document and destroying the worker mid-synthesis.
+  - **Fix**: Removed `chrome.offscreen.closeDocument()` from `stopPlayback()` in [`background.js`](file:///c:/Users/llsha/Documents/Atomic_chat/Kitten-tts-webgpu-Chrome/background.js) to preserve the offscreen document, WebGPU pipelines, and engine cache across playback sessions (document closure is reserved exclusively for explicit `RESET_GPU_OFFSCREEN`). Guarded `PREWARM_MODEL` in [`src/offscreen.js`](file:///c:/Users/llsha/Documents/Atomic_chat/Kitten-tts-webgpu-Chrome/src/offscreen.js) and [`src/sidepanel.js`](file:///c:/Users/llsha/Documents/Atomic_chat/Kitten-tts-webgpu-Chrome/src/sidepanel.js) so prewarm never runs while synthesis is actively executing.
+- **Clear Synthesis vs. Waiting State Feedback**:
+  - Refactored chunk progress reporting in [`src/worker.js`](file:///c:/Users/llsha/Documents/Atomic_chat/Kitten-tts-webgpu-Chrome/src/worker.js): starting chunk 1 begins at 0% (instead of prematurely jumping to `(1/total)*100`) and displays explicit chunk counters (`Synthesizing chunk X of Y…`). Progress only increments when chunks complete.
+  - Dispatched immediate `TTS_STATUS (busy)` with status "Preparing synthesis..." upon receipt of `PLAY_TEXT` in [`src/offscreen.js`](file:///c:/Users/llsha/Documents/Atomic_chat/Kitten-tts-webgpu-Chrome/src/offscreen.js).
+  - Maintained `currentPlaybackState` in [`background.js`](file:///c:/Users/llsha/Documents/Atomic_chat/Kitten-tts-webgpu-Chrome/background.js) and sent `TTS_STATE_SYNC` whenever [`src/sidepanel.js`](file:///c:/Users/llsha/Documents/Atomic_chat/Kitten-tts-webgpu-Chrome/src/sidepanel.js) connects over `tts-ui`, locking UI controls (`playBtn.disabled = true`, `playBtn.textContent = "⏳ Generating..."`, `stopBtn.disabled = false`, progress bar visible) so users immediately know synthesis is underway without ambiguity.
+
 ## [1.13] / [1.3.15] - 2026-09-06
 
 ### Meridiem Enunciation & Image Credit Deduplication

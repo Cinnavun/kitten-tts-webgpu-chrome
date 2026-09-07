@@ -422,7 +422,21 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     return true; // async
   }
 
+  if (msg.type === "GET_PLAYBACK_STATE") {
+    sendResponse({
+      isGenerating,
+      isPlaybackStopped,
+      activeSourcesCount: activeSources.length,
+      generationId
+    });
+    return true;
+  }
+
   if (msg.type === "PREWARM_MODEL") {
+    if (isGenerating) {
+      sendResponse({ success: true, skipped: true });
+      return true;
+    }
     ttsWorker.postMessage({
       type: "PREWARM_MODEL",
       model: msg.model || "nano",
@@ -491,6 +505,14 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     pendingSchedule = [];
 
     lastSynthParams = incomingParams;
+
+    // Immediately broadcast that synthesis is starting so all listeners lock controls
+    portSend({
+      type: "TTS_STATUS",
+      status: "Preparing synthesis...",
+      state: "busy",
+      generationId: thisGenId
+    });
 
     (async () => {
       const ctx = getAudioContext();
